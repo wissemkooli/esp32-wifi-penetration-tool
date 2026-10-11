@@ -148,6 +148,18 @@ SDK channel preconditions: https://docs.espressif.com/projects/esp-idf/en/v5.5.5
 
 ### Controller diagnostics (1.0.1)
 
+The API and USB startup log now derive firmware and SDK versions from the
+running image's application descriptor. The previous hardcoded 1.0.2 label
+also appeared on 1.0.3 diagnostic builds and did not identify the flashed
+binary correctly. Handshake setup failures now preserve the returned error
+code and setup stage (event handler, sniffer filter/start, or method start)
+instead of exposing only `setup_failed` with a zero error code. These are
+diagnostic fixes; a reported driver completion is not evidence of a client
+disconnect. Internet ping alone cannot establish whether a Wi-Fi association
+briefly dropped and recovered. Windows' wireless report can show recorded
+connection/disconnection events for the corresponding test interval:
+`netsh wlan show wlanreport` from an administrator command prompt.
+
 Version **1.0.3** corrects the misleading transmission label: `sent` remains
 as a compatibility alias, while `tx_accepted` explicitly counts successful SDK
 submissions. The controller collects the public SDK TX completion callback in

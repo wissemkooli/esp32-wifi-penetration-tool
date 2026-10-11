@@ -315,9 +315,14 @@ static void test_pcap_limit(void) {
     puts("PASS: bounded PCAP memory and cleanup");
 }
 static void test_start_failures(void) {
+    httpd_req_t request={0}; device_get(&request);
+    assert(strstr((char *)request.response,"test-build-version") && strstr((char *)request.response,"test-sdk-version")); clear_response(&request);
     fail_sniffer = true;
     assert(attack_submit(0, 1, 2, 5) == ESP_OK); dispatch();
     assert(!sniffing && !timer.armed && attack_get_status()->state == TIMEOUT);
+    assert(attack_get_job()->radio_error==ESP_FAIL && !strcmp(attack_get_job()->radio_stage,"sniffer_start"));
+    request=(httpd_req_t){0}; job_get(&request);
+    assert(strstr((char *)request.response,"\"radio_error_code\":-1") && strstr((char *)request.response,"sniffer_start")); clear_response(&request);
     assert(attack_reset_request() == ESP_OK); dispatch();
     fail_sniffer = false; fail_connection = true;
     assert(attack_submit(0, 2, 0, 5) == ESP_OK); dispatch();

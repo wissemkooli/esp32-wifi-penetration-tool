@@ -38,6 +38,16 @@ const attack_job_t *attack_get_job(void) { return &job; }
 void attack_set_error(const char *reason) {
     attack_lock(); snprintf(job.reason, sizeof(job.reason), "%s", reason); attack_unlock();
 }
+void attack_note_setup_failure(esp_err_t error, const char *stage) {
+    if (error == ESP_OK || !stage) return;
+    attack_lock();
+    if (attack_status.state == RUNNING && !job.radio_error) {
+        job.radio_error = error;
+        snprintf(job.radio_stage, sizeof(job.radio_stage), "%s", stage);
+        snprintf(job.reason, sizeof(job.reason), "setup_failed");
+    }
+    attack_unlock();
+}
 void attack_note_tx(bool success, unsigned target) {
     attack_lock();
     if (success) ++job.sent; else ++job.tx_errors;

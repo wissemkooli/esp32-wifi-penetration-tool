@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include "esp_timer.h"
+#include "esp_app_desc.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -242,8 +243,9 @@ static esp_err_t job_get(httpd_req_t *req) {
 static esp_err_t device_get(httpd_req_t *req) {
     cJSON *value = cJSON_CreateObject();
     cJSON_AddNumberToObject(value, "schema_version", 1);
-    cJSON_AddStringToObject(value, "firmware", "unified-1.0.2");
-    cJSON_AddStringToObject(value, "idf_version", "v5.5.5");
+    const esp_app_desc_t *app = esp_app_get_description();
+    cJSON_AddStringToObject(value, "firmware", app->version);
+    cJSON_AddStringToObject(value, "idf_version", app->idf_ver);
     cJSON_AddStringToObject(value, "chip", "esp32"); cJSON_AddStringToObject(value, "band", "2.4 GHz");
     cJSON_AddNumberToObject(value, "max_targets", MAX_JOB_TARGETS);
     cJSON_AddStringToObject(value, "management_ssid", CONFIG_MGMT_AP_SSID);

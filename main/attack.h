@@ -98,6 +98,7 @@ void attack_controller_diagnostics(uint32_t id, uint32_t ok, uint32_t failed,
 esp_err_t attack_controller_failure_request(uint32_t id, esp_err_t error,
                                            const char *stage, unsigned target);
 void attack_set_error(const char *reason);
+void attack_note_setup_failure(esp_err_t error, const char *stage);
 
 /**
  * @brief Returns pointer to attack_status_t structure.
