@@ -10,6 +10,8 @@
 #define FRAME_ANALYZER_PARSER_H
 
 #include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 #include "esp_wifi_types.h"
 
 #include "frame_analyzer_types.h"
@@ -31,7 +33,8 @@ bool is_frame_bssid_matching(wifi_promiscuous_pkt_t *frame, uint8_t *bssid);
  * @return \c NULL if no EAPoL packet was found
  * @return \c NULL if frame is protected
  */
-eapol_packet_t *parse_eapol_packet(data_frame_t *frame);
+/* frame_size is the number of captured MAC bytes, excluding the FCS. */
+eapol_packet_t *parse_eapol_packet(data_frame_t *frame, size_t frame_size);
 
 /**
  * @brief Parses EAPoL-Key packet from EAPoL packet
@@ -41,7 +44,7 @@ eapol_packet_t *parse_eapol_packet(data_frame_t *frame);
  * @return eapol_key_packet_t* if parsing successful
  * @return \c NULL if no EAPoL-Key packet found
  */
-eapol_key_packet_t *parse_eapol_key_packet(eapol_packet_t *eapol_packet);
+eapol_key_packet_t *parse_eapol_key_packet(eapol_packet_t *eapol_packet, size_t packet_size);
 
 /**
  * @brief Parses PMKIDs from EAPoL-Key packet
@@ -52,6 +55,7 @@ eapol_key_packet_t *parse_eapol_key_packet(eapol_packet_t *eapol_packet);
  * @return \c NULL if key data are encrypted
  * @return \c NULL parsing fails
  */
-pmkid_item_t *parse_pmkid(eapol_key_packet_t *eapol_key);
+pmkid_item_t *parse_pmkid(eapol_key_packet_t *eapol_key, size_t packet_size);
+void free_pmkid_list(pmkid_item_t *head);
 
 #endif

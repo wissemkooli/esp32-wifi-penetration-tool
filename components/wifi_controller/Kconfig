@@ -2,6 +2,7 @@
 menu "Wi-Fi Controller"
     config SCAN_MAX_AP
         int "Maximun AP scanned"
+        range 1 64
         default 20
         help
         Maximum number of scanned nearby AP

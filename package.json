@@ -1,0 +1,12 @@
+{
+  "name": "esp32-wifi-audit-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build_web.mjs",
+    "test": "node tests/test_audit.mjs && node tests/test_dashboard.mjs"
+  },
+  "dependencies": { "hash-wasm": "4.12.0" },
+  "devDependencies": { "esbuild": "0.25.5", "playwright": "1.56.1" }
+}

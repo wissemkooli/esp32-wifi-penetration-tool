@@ -11,6 +11,12 @@
 
 #include <stdint.h>
 
+/* Wire integers may be unaligned and are in network byte order. */
+static inline uint16_t frame_read_be16(const void *value) {
+    const uint8_t *bytes = value;
+    return ((uint16_t)bytes[0] << 8) | bytes[1];
+}
+
 /**
  * @see Ref: 802.1X-2020 [11.1.4]
  */
@@ -90,18 +96,7 @@ typedef struct {
  * @see Ref: 802.11-2016 [12.7.2]
  */
 typedef struct {
-    uint8_t key_descriptor_version:3;
-    uint8_t key_type:1;
-    uint8_t :2;
-    uint8_t install:1;
-    uint8_t key_ack:1;
-    uint8_t key_mic:1;
-    uint8_t secure:1;
-    uint8_t error:1;
-    uint8_t request:1;
-    uint8_t encrypted_key_data:1;
-    uint8_t smk_message:1;
-    uint8_t :2;
+    uint8_t bytes[2];
 } key_information_t;
 
 /**

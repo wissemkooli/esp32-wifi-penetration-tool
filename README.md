@@ -1,8 +1,20 @@
 # ESP32 Wi-Fi Penetration Tool
 
-This project introduces an universal tool for ESP32 platform for implementing various Wi-Fi attacks. It provides some common functionality that is commonly used in Wi-Fi attacks and makes implementing new attacks a bit simpler. It also includes Wi-Fi attacks itself like capturing PMKIDs from handshakes, or handshakes themselves by different methods like starting rogue duplicated AP or sending deauthentication frames directly, etc...
+## Unified local fork
 
-Obviously cracking is not part of this project, as ESP32 is not sufficient to crack hashes in effective way. The rest can be done on this small, cheap, low-power SoC.
+One ESP32-hosted website now contains **Networks**, **Capture / Controller**
+and **Offline Audit**. The ESP32 handles discovery and timed radio operations;
+your phone runs the offline WPA2 audit in a background worker. Passwords and
+wordlists stay on the phone. Everyday use requires no computer, Termux or internet.
+
+This fork targets **ESP32 DevKit V1 / ESP32-WROOM-32 with 4 MB flash** and pins
+**ESP-IDF v5.5.5**. The build and automated native/browser checks pass.
+**Physical board and Android/router tests are still pending.** Existing active
+radio methods remain unverified with the new SDK.
+
+Read [the unified workflow, APIs and hardware checklist](doc/UNIFIED_DASHBOARD.md)
+and [the original audit and reliability fixes](doc/MODERNIZATION.md).
+The upstream feature descriptions and demo below describe the original project.
 
 <p align="center">
     <img src="doc/images/logo.png" alt="Logo">
@@ -33,30 +45,64 @@ By default:
 *SSID:* `ManagementAP` and *password:* `mgmtadmin`
 1. In browser open `192.168.4.1` and you should see a web client to configure and control tool like this:
 
-    ![Web client UI](doc/images/ui-config.png)
+    Use the three panels described in [the dashboard guide](doc/UNIFIED_DASHBOARD.md).
 
 ## Build
-This project is currently developed using ESP-IDF 4.1 (commit `5ef1b390026270503634ac3ec9f1ec2e364e23b2`). It may be broken on newer version.
-
-Project can be built in the usual ESP-IDF way:
+Install [ESP-IDF v5.5.5](https://github.com/espressif/esp-idf/releases/tag/v5.5.5)
+with its ESP32 tools, then open the ESP-IDF terminal. The build rejects other
+SDK versions and chip targets. Install Node 22 or later and run `npm ci`
+in this repository first. On Windows, enable Git long paths before
+installing SDK submodules: `git config --global core.longpaths true`.
 
 ```shell
-idf.py build
+idf.py -B build-modern -DIDF_TARGET=esp32 build
 ```
 
-Legacy method using `make` is not supported by this project.
+For a clean Linux SDK installation:
+
+```shell
+git clone --branch v5.5.5 --recursive https://github.com/espressif/esp-idf.git
+cd esp-idf
+./install.sh esp32
+. ./export.sh
+cd /path/to/esp32-wifi-penetration-tool
+idf.py -B build-modern -DIDF_TARGET=esp32 build
+```
+
+Do not reuse an ESP-IDF 4.1 `sdkconfig` or build directory. Start from this
+fork's `sdkconfig.defaults`. Configure management AP credentials under
+**Wi-Fi Controller â†’ Management AP** in `idf.py -B build-modern menuconfig`.
+The dashboard, worker, bundled WASM and CSS are compressed and embedded
+automatically during builds. Daily operation makes no external asset requests.
+
+Host regression checks require Python, GCC and Node.js, independently of IDF.
+Install the pinned packages with `npm ci`; on Linux run
+`npx playwright install --with-deps chromium`. Windows tests use installed Edge:
+
+```shell
+python tests/run_tests.py
+# Linux: also enable memory and undefined-behavior checks
+python tests/run_tests.py --sanitize
+```
+
+The GitHub workflow builds the pinned firmware and runs the sanitized host
+checks when pushed. It has not been run remotely for this local fork.
 
 ## Flash
-If you have setup ESP-IDF, the easiest way is to use `idf.py flash`.
+In the ESP-IDF terminal, replace `COM5` with your board's serial port:
 
-In case you don't want to setup whole ESP-IDF, you can use pre-build binaries included in [`build/`](build/) and flash them using [`esptool.py`](https://github.com/espressif/esptool) (requires Python).
-
-Example command (follow instructions in [esptool repo](https://github.com/espressif/esptool)):
-```
-esptool.py -p /dev/ttyS5 -b 115200 --after hard_reset write_flash --flash_mode dio --flash_freq 40m --flash_size detect 0x8000 build/partition_table/partition-table.bin 0x1000 build/bootloader/bootloader.bin 0x10000 build/esp32-wifi-penetration-tool.bin
+```shell
+idf.py -B build-modern -p COM5 flash monitor
 ```
 
-On Windows you can use official [Flash Download Tool](https://www.espressif.com/en/support/download/other-tools).
+On Linux use a port such as `/dev/ttyUSB0`. Leave the serial monitor with
+Ctrl+]. Flashing has not been performed automatically.
+
+**The committed binaries in `build/` are upstream's old firmware.** They do
+not contain these changes. Use the new `build-modern` output or the prepared
+firmware bundle. Its `flash_args` specifies the bootloader at `0x1000`, the
+partition table at `0x8000`, and the application at `0x10000` (DIO, 40 MHz,
+4 MB). Confirm your module has 4 MB flash before using this layout.
 
 ## Documentation
 ### Wi-Fi attacks
@@ -88,7 +134,7 @@ but there should not be any differences for any **ESP32-WROOM-32** modules.
 
 On the following pictures you can see a battery (Li-Pol accumulator) powered ESP32 DevKitC using following hardware:
 - **ESP32-DEVKITC-32E** (cost 213 CZK/8.2 EUR/9.6 USD)
-- 220mAh Li-Pol 3.7V accumulator (weights ±5g, cost 77 CZK/3 EUR/3.5 USD)
+- 220mAh Li-Pol 3.7V accumulator (weights Â±5g, cost 77 CZK/3 EUR/3.5 USD)
 - MCP1702-3302ET step-down 3.3V voltage regulator (cost 11 CZK/0.42 EUR/0.50 USD)
 - Czech 5-koruna coin for scale (weights 4.8g, diameter 23 mm, cost 0.19 EUR/0.23 USD)
 <p align="center">
@@ -98,7 +144,7 @@ On the following pictures you can see a battery (Li-Pol accumulator) powered ESP
 
 Altogether (without coin) this setup weights around 17g. This can be further downsized by using smaller Li-Pol accumulator and using ESP32-WROOM-32 modul directly instead of whole dev board.
 
-This setup cost me around 300 CZK (± 11.50 EUR/13.50 USD). Using the modul directly that costs around 80 CZK (± 3 EUR/3.5 USD) we can get to price of 160 CZK (± 6.5 EUR/7.5 USD) which makes this tool really cheap and available to almost everybody.
+This setup cost me around 300 CZK (Â± 11.50 EUR/13.50 USD). Using the modul directly that costs around 80 CZK (Â± 3 EUR/3.5 USD) we can get to price of 160 CZK (Â± 6.5 EUR/7.5 USD) which makes this tool really cheap and available to almost everybody.
 
 ### Power consumption
 Based on experimental measurements, ESP32 consumes around 100mA during attack executions. 

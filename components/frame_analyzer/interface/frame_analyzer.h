@@ -10,8 +10,16 @@
 #define FRAME_ANALYZER_H
 
 #include "esp_event.h"
+#include <stdint.h>
 
 ESP_EVENT_DECLARE_BASE(FRAME_ANALYZER_EVENTS);
+
+typedef struct {
+    uint32_t generation;
+    uint16_t count;
+    uint8_t station[6];
+    uint8_t pmkids[];
+} pmkid_result_t;
 
 enum {
     DATA_FRAME_EVENT_EAPOLKEY_FRAME,

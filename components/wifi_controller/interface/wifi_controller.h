@@ -22,7 +22,7 @@
  * 
  * @param wifi_config 
  */
-void wifictl_ap_start(wifi_config_t *wifi_config);
+esp_err_t wifictl_ap_start(wifi_config_t *wifi_config);
 
 /**
  * @brief Stops running AP
@@ -42,7 +42,7 @@ void wifictl_mgmt_ap_start();
  * @param ap_record 
  * @param password password for target network
  */
-void wifictl_sta_connect_to_ap(const wifi_ap_record_t *ap_record, const char password[]);
+esp_err_t wifictl_sta_connect_to_ap(const wifi_ap_record_t *ap_record, const char password[]);
 
 /**
  * @brief Disconnects station interface from currently connected AP
@@ -55,7 +55,7 @@ void wifictl_sta_disconnect();
  * 
  * @param mac_ap valid MAC address is expected, array of size 6
  */
-void wifictl_set_ap_mac(const uint8_t *mac_ap);
+esp_err_t wifictl_set_ap_mac(const uint8_t *mac_ap);
 
 /**
  * @brief Saves current AP interface MAC to given parameter

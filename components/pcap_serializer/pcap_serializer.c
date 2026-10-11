@@ -9,6 +9,7 @@
 #include "pcap_serializer.h"
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
@@ -24,6 +25,7 @@ static const char *TAG = "pcap_serializer";
  */
 //@{
 #define SNAPLEN 65535
+#define PCAP_BUFFER_LIMIT (64 * 1024)
 #define PCAP_MAGIC_NUMBER 0xa1b2c3d4
 //@}
 
@@ -39,7 +41,7 @@ static uint8_t *pcap_buffer = NULL;
 
 uint8_t *pcap_serializer_init(){
     // Make sure memory from previous attack is freed
-    free(pcap_buffer);
+    pcap_serializer_deinit();
     // Ref: https://gitlab.com/wireshark/wireshark/-/wikis/Development/LibpcapFileFormat#global-header
     pcap_global_header_t pcap_global_header = {
         .magic_number = PCAP_MAGIC_NUMBER,
@@ -51,13 +53,14 @@ uint8_t *pcap_serializer_init(){
         .network = LINKTYPE_IEEE802_11
     };
     pcap_buffer = (uint8_t *)malloc(sizeof(pcap_global_header_t));
+    if (!pcap_buffer) return NULL;
     pcap_size = sizeof(pcap_global_header_t);
     memcpy(pcap_buffer, &pcap_global_header, sizeof(pcap_global_header_t));
     return pcap_buffer;
 }
 
 void pcap_serializer_append_frame(const uint8_t *buffer, unsigned size, unsigned ts_usec){
-    if(size == 0){
+    if(!pcap_buffer || !buffer || size == 0){
         ESP_LOGD(TAG, "Frame size is 0. Not appending anything.");
         return;
     }
@@ -75,6 +78,11 @@ void pcap_serializer_append_frame(const uint8_t *buffer, unsigned size, unsigned
         pcap_record_header.incl_len = SNAPLEN;
     }
 
+    if (size > PCAP_BUFFER_LIMIT - sizeof(pcap_record_header_t) ||
+        pcap_size > PCAP_BUFFER_LIMIT - sizeof(pcap_record_header_t) - size) {
+        ESP_LOGW(TAG, "PCAP buffer full; preserving captured records");
+        return;
+    }
     uint8_t *reallocated_pcap_buffer = realloc(pcap_buffer, pcap_size + sizeof(pcap_record_header_t) + size);
     if(reallocated_pcap_buffer == NULL){
         ESP_LOGE(TAG, "Error reallocating PCAP buffer! PCAP buffer may not be complete.");
