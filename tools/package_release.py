@@ -13,7 +13,7 @@ sha = lambda data: hashlib.sha256(data).hexdigest()
 
 test_log = (ROOT / 'build-tests/unified-tests.log').read_text(encoding='utf-8')
 build_log = (BUILD / 'unified-build.log').read_text(encoding='utf-8')
-if 'All core regression tests passed.' not in test_log or 'PASS: real browser worker' not in test_log or 'PASS: independent crypto vectors' not in test_log:
+if any(marker not in test_log for marker in ['All core regression tests passed.', 'PASS: actual controller', 'PASS: real browser worker', 'PASS: independent crypto vectors']):
     raise SystemExit('Run the complete regression suite and retain build-tests/unified-tests.log first')
 if 'Project build complete.' not in build_log:
     raise SystemExit('Complete the firmware build and retain build-modern/unified-build.log first')
@@ -40,7 +40,7 @@ payloads['verification/firmware-build.log']=build_log.encode()
 tree = hashlib.sha256()
 for name,data in contents.items(): tree.update(name.encode()+b'\0'+data+b'\0')
 manifest = {
-    'release':'unified-1.0.0','target':'esp32','board':'ESP32-WROOM-32 / DevKit V1','flash_mb':4,
+    'release':'unified-1.0.3','target':'esp32','board':'ESP32-WROOM-32 / DevKit V1','flash_mb':4,
     'idf_version':'v5.5.5','idf_commit':'b774170ff46c393eeb5e495ea37936038d3f4f4f',
     'local_sdk_note':'OpenThread submodule has a Windows checkout change; this Wi-Fi firmware does not build OpenThread.',
     'hash_wasm':'4.12.0','upstream_commit':'e346e28ed9c93e98ab686c30eb8c4bc549313ba3','local_changes':True,
@@ -49,11 +49,19 @@ manifest = {
     'verification':{'firmware_build':'passed','native_c_tests':'passed','python_browser_parity':'passed',
         'real_browser_workflow':'passed on desktop Edge/Chromium','physical_devkit_v1':'pending',
         'android_chrome':'pending','active_radio_methods':'unverified','remote_ci':'not run','linux_sanitizers':'not run locally'}}
-payloads['README.md']=b'''# Unified ESP32 Wi-Fi Audit firmware 1.0
+payloads['README.md']=b'''# Unified ESP32 Wi-Fi Audit firmware 1.0.3 (driver completion diagnostics)
 
 For classic ESP32-WROOM-32 / DevKit V1 with 4 MB flash, ESP-IDF v5.5.5.
 Software build/tests passed; physical ESP32, Android and router tests are pending.
 Existing active radio methods remain unverified. See doc/UNIFIED_DASHBOARD.md.
+The 1.0 preview has reported zero accepted transmissions on a user's board.
+The 1.0.1 log shows an APSTA channel-switch failure before transmission.
+ManagementAP pauses during timed controller jobs and returns afterward.
+This update distinguishes SDK-accepted submissions from driver completion
+callbacks, and includes security/PMF metadata in saved text logs. A missing
+callback means unknown completion; driver success does not prove receipt by
+the PC or a disconnection. This is a diagnostic update, and does not establish
+deauthentication compatibility with ESP-IDF 5.5.5.
 
 ## Flash
 

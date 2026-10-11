@@ -2,7 +2,7 @@ idf_component_register(SRCS "webserver.c"
                     INCLUDE_DIRS "interface"
                     PRIV_INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
                     REQUIRES esp_event
-    PRIV_REQUIRES hccapx_serializer pcap_serializer esp_http_server esp_timer json wifi_controller main)
+    PRIV_REQUIRES hccapx_serializer pcap_serializer esp_http_server esp_timer esp_app_format json wifi_controller main)
 
 set(PAGE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/page_index.h")
 set(ASSET_HEADER "${CMAKE_CURRENT_BINARY_DIR}/web_assets.h")
