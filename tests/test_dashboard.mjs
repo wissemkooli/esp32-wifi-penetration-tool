@@ -14,7 +14,7 @@ const server=createServer(async(req,res)=>{
   if(disconnected && path.startsWith('/api/')) {req.socket.destroy();return;}
   let body=''; for await(const chunk of req)body+=chunk;
   const json=value=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
-  if(path==='/api/v1/device')return json({boot_id:job.boot_id,management_ssid:'ManagementAP',firmware:'unified-1.0.2',chip:'esp32'});
+  if(path==='/api/v1/device')return json({boot_id:job.boot_id,management_ssid:'ManagementAP',firmware:'unified-1.0.3',chip:'esp32'});
   if(path==='/api/v1/networks')return json({scan_generation:1,networks:[{id:0,ssid_hex:Buffer.from('<img src=x onerror=alert(1)>').toString('hex'),
     bssid:'021122334455',channel:1,rssi:-71,security:'WPA2-Personal',pmf:'Supported, optional'}]});
   if(path==='/api/v1/job')return json(job);
@@ -79,7 +79,9 @@ try {
 
   // Exact driver errors survive reconnects and enable starting a later job.
   job={...job,state:'error',reason:'radio_failure',radio_error_code:258,
-    radio_error_stage:'transmit',radio_error_name:'ESP_ERR_INVALID_ARG',current_target:0,tx_errors:1,channel_errors:0};
+    radio_error_stage:'transmit',radio_error_name:'ESP_ERR_INVALID_ARG',current_target:0,tx_errors:1,channel_errors:0,
+    security:'WPA/WPA2-Personal mixed',pmf:'Not advertised',tx_accepted:2,tx_done_ok:1,tx_done_fail:1,
+    tx_callback_registered:true,tx_callback_error_code:0};
   await page.waitForFunction(()=>document.querySelector('#device-state').textContent==='error');
   assert.match(await page.locator('#device-progress').textContent(),/transmit: ESP_ERR_INVALID_ARG \(0x102\)/);
   assert.equal(await page.locator('#capture').isEnabled(),true);
@@ -89,9 +91,13 @@ try {
   const logFile=await downloaded;
   assert.match(logFile.suggestedFilename(),/^esp32-device-log-.*\.txt$/);
   const diagnostics=await readFile(await logFile.path(),'utf8');
-  assert.match(diagnostics,/Firmware: unified-1\.0\.2/);
+  assert.match(diagnostics,/Firmware: unified-1\.0\.3/);
   assert.match(diagnostics,/ESP_ERR_INVALID_ARG/);
   assert.match(diagnostics,/"radio_error_stage":"transmit"/);
+  assert.match(diagnostics,/"pmf":"Not advertised"/);
+  assert.match(diagnostics,/"security":"WPA\/WPA2-Personal mixed"/);
+  assert.match(diagnostics,/"tx_accepted":2/);
+  assert.match(diagnostics,/does not confirm peer receipt/);
   assert.equal(diagnostics.includes(oracle.password),false);
   assert.equal(diagnostics.includes('wrong-word-'),false);
   job={...job,radio_error_code:0,radio_error_stage:'',radio_error_name:'',tx_errors:0};
@@ -102,8 +108,12 @@ try {
   disconnected=true;
   await page.waitForFunction(()=>document.querySelector('#connection').textContent==='Reconnecting…');
   assert.equal(await page.locator('#save-device-log').isEnabled(),true);
-  job={...job,state:'complete',reason:'deadline'};disconnected=false;
+  job={...job,state:'complete',reason:'deadline',sent:2};disconnected=false;
   await page.waitForFunction(()=>document.querySelector('#device-state').textContent==='complete');
+  assert.match(await page.locator('#device-progress').textContent(),/SDK accepted 2/);
+  assert.match(await page.locator('#device-progress').textContent(),/driver OK 1 · driver failed 1/);
+  job={...job,tx_done_ok:0,tx_done_fail:0};
+  await page.waitForFunction(()=>document.querySelector('#device-progress').textContent.includes('completion unknown (no callbacks)'));
   await page.locator('#operation').selectOption('1');
 
   // Capture & Audit transfers a completed capture and starts the selected local mode.

@@ -19,6 +19,20 @@ static uint32_t active_job;
  * whole job so the phone cannot reconnect between channel changes. */
 static bool radio_reserved;
 static const char *TAG = "controller";
+static atomic_bool observe_tx;
+static atomic_uint tx_done_ok, tx_done_fail;
+static bool callback_registered;
+static esp_err_t callback_error;
+
+/* The SDK invokes this in its Wi-Fi task. Keep it bounded, without logging,
+ * mutexes, job access or retaining the SDK's temporary pointers. These are
+ * driver results; broadcast frames cannot acknowledge receipt by a client. */
+static void tx_done(const esp_80211_tx_info_t *info) {
+    if (!atomic_load(&observe_tx) || !info || !info->data || info->data_len < 2 ||
+        info->ifidx != WIFI_IF_STA || info->data[0] != 0xc0) return;
+    if (info->tx_status == WIFI_SEND_SUCCESS) atomic_fetch_add(&tx_done_ok, 1);
+    else atomic_fetch_add(&tx_done_fail, 1);
+}
 
 static void transmit_task(void *arg) {
     const uint32_t id = active_job;
@@ -34,6 +48,16 @@ static void transmit_task(void *arg) {
      * Keep SoftAP off until the manager ends this bounded operation. */
     radio_reserved = true;
     stage = "radio_stop"; failure = esp_wifi_stop();
+    if (failure == ESP_OK) {
+        /* Reset only after the previous radio session has stopped. */
+        atomic_store(&tx_done_ok, 0); atomic_store(&tx_done_fail, 0);
+        callback_error = esp_wifi_register_80211_tx_cb(tx_done);
+        callback_registered = callback_error == ESP_OK;
+        atomic_store(&observe_tx, callback_registered);
+        if (callback_error != ESP_OK)
+            ESP_LOGW(TAG, "job=%lu TX completion diagnostics unavailable: %s (0x%x)",
+                     (unsigned long)id, esp_err_to_name(callback_error), (unsigned)callback_error);
+    }
     if (failure == ESP_OK) { stage = "mode"; failure = esp_wifi_set_mode(WIFI_MODE_STA); }
     if (failure == ESP_OK) { stage = "radio_start"; failure = esp_wifi_start(); }
     if (failure == ESP_OK) { stage = "promiscuous"; failure = esp_wifi_set_promiscuous(true); }
@@ -90,6 +114,9 @@ esp_err_t controller_start(const wifi_ap_record_t *targets, unsigned count) {
     if (!stopped) stopped = xSemaphoreCreateBinary();
     if (!stopped) return ESP_ERR_NO_MEM;
     xSemaphoreTake(stopped, 0);
+    atomic_store(&observe_tx, false);
+    atomic_store(&tx_done_ok, 0); atomic_store(&tx_done_fail, 0);
+    callback_registered = false; callback_error = ESP_OK;
     memcpy(selected, targets, count * sizeof(*targets)); target_count = count;
     attack_lock(); active_job = attack_get_job()->id;
     ESP_LOGI(TAG, "session=%s job=%lu targets=%u interface=STA sequence=caller",
@@ -118,6 +145,13 @@ void controller_stop(void) {
         radio_reserved = false;
         const char *stage = "restore_stop";
         esp_err_t err = esp_wifi_stop();
+        /* Freeze diagnostic collection and detach before restoring ManagementAP.
+         * A missing callback is unknown, not a transmission failure. */
+        atomic_store(&observe_tx, false);
+        if (callback_registered) {
+            esp_err_t unregister_error = esp_wifi_register_80211_tx_cb(NULL);
+            if (unregister_error != ESP_OK && callback_error == ESP_OK) callback_error = unregister_error;
+        }
         if (err == ESP_OK) { stage = "restore_mode"; err = esp_wifi_set_mode(WIFI_MODE_APSTA); }
         if (err == ESP_OK) { stage = "restore_start"; err = esp_wifi_start(); }
         if (err != ESP_OK) {
@@ -126,4 +160,10 @@ void controller_stop(void) {
             attack_controller_failure_request(active_job, err, stage, 0);
         } else ESP_LOGI(TAG, "job=%lu radio mode=APSTA restored", (unsigned long)active_job);
     }
+    atomic_store(&observe_tx, false);
+    uint32_t ok = atomic_load(&tx_done_ok), failed = atomic_load(&tx_done_fail);
+    attack_controller_diagnostics(active_job, ok, failed, callback_registered, callback_error);
+    ESP_LOGI(TAG, "job=%lu driver_completed_ok=%lu driver_completed_fail=%lu callback_registered=%d callback_error=%s; peer receipt unverified",
+             (unsigned long)active_job, (unsigned long)ok, (unsigned long)failed,
+             callback_registered, esp_err_to_name(callback_error));
 }

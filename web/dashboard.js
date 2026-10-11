@@ -9,8 +9,10 @@ const captures = new Map(), fetched = new Set(), pendingAudit = new Map(), audit
 const deviceLog = [];
 let lastDeviceLog = '';
 function recordDeviceLog() {
-  const fields=['boot_id','id','state','type','method','timeout','sent','tx_errors','channel_errors',
-    'reason','radio_error_code','radio_error_name','radio_error_stage','current_target','targets','channel'];
+  const fields=['boot_id','id','scan_generation','state','type','method','timeout','sent','tx_accepted','tx_errors','channel_errors',
+    'tx_done_ok','tx_done_fail','tx_callback_registered','tx_callback_error_code','tx_callback_error_name',
+    'reason','radio_error_code','radio_error_name','radio_error_stage','current_target','targets','channel',
+    'bssid','ssid_hex','security','pmf'];
   const snapshot=Object.fromEntries(fields.filter(key=>job[key]!==undefined).map(key=>[key,job[key]]));
   const signature=JSON.stringify(snapshot);
   if (signature===lastDeviceLog) return;
@@ -23,6 +25,8 @@ function saveDeviceLog() {
     `Firmware: ${device?.firmware || 'unknown'}`,`Chip: ${device?.chip || 'unknown'}`,
     `ESP-IDF: ${device?.idf_version || 'unknown'}`,
     'Browser-observed job status (last 200 changes); full boot/SDK logs require USB serial.',
+    'sent/tx_accepted count SDK-accepted submissions. tx_done_ok/fail are driver completion results, recorded when the controller stops.',
+    'Zero callbacks mean unknown completion; even driver success does not confirm peer receipt or disconnection.',
     'Passwords, wordlists and offline audit results are excluded.',''];
   download(new Blob([[...header,...deviceLog].join('\n')+'\n'],{type:'text/plain;charset=utf-8'}),
     `esp32-device-log-${job?.boot_id || 'unknown'}-${job?.id || 0}.txt`);
@@ -99,7 +103,10 @@ function renderJob() {
   recordDeviceLog();
   badge('device-state',job.state,busy()?'busy':job.state==='error'?'offline':'');
   const error=job.radio_error_code ? ` · ${job.radio_error_stage}: ${job.radio_error_name} (0x${(job.radio_error_code >>> 0).toString(16)}) · target ${(job.current_target || 0)+1}` : '';
-  text('device-progress',`${job.state} · ${(job.elapsed || 0).toFixed(1)} s · sent ${job.sent || 0} · TX errors ${job.tx_errors || 0} · channel errors ${job.channel_errors || 0}${job.reason ? ' · '+job.reason : ''}${error}`);
+  const completion=job.type===4 && !busy() ? (job.tx_callback_registered
+    ? ` · driver OK ${job.tx_done_ok || 0} · driver failed ${job.tx_done_fail || 0}${!(job.tx_done_ok || job.tx_done_fail) && job.sent ? ' · completion unknown (no callbacks)' : ''}`
+    : ' · driver completion unavailable') : '';
+  text('device-progress',`${job.state} · ${(job.elapsed || 0).toFixed(1)} s · SDK accepted ${job.tx_accepted ?? job.sent ?? 0} · TX errors ${job.tx_errors || 0} · channel errors ${job.channel_errors || 0}${completion}${job.reason ? ' · '+job.reason : ''}${error}`);
   text('radio-hint',job.type===4 && busy() ?
     `ManagementAP pauses during this controller test. It returns when the job ends, within the ${job.timeout}-second limit. Keep this page open and reconnect afterward. While disconnected, use USB serial Stop or reset the board to end it early.` :
     'The radio runs one operation at a time. During controller tests, ManagementAP pauses until the job ends. Keep this page open and reconnect to ManagementAP afterward. The device stops at its own time limit.');

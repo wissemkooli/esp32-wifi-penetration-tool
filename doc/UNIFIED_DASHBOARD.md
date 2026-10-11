@@ -148,6 +148,32 @@ SDK channel preconditions: https://docs.espressif.com/projects/esp-idf/en/v5.5.5
 
 ### Controller diagnostics (1.0.1)
 
+Version **1.0.3** corrects the misleading transmission label: `sent` remains
+as a compatibility alias, while `tx_accepted` explicitly counts successful SDK
+submissions. The controller collects the public SDK TX completion callback in
+its Wi-Fi task using bounded atomic counters. On stop, the manager stores
+`tx_done_ok`, `tx_done_fail`, `tx_callback_registered` and
+`tx_callback_error_code/name` in the matching job after detaching the callback.
+These completion totals are final snapshots, not live counters. Callback
+registration failure does not change the existing radio operation; it marks
+diagnostics unavailable. Zero completion callbacks mean **unknown**, even when
+registration succeeded. Neither SDK acceptance nor a successful driver callback
+confirms reception by a particular client or a disconnection. Broadcast frames
+do not receive client acknowledgments.
+
+Saved text logs now include the BSSID, exact SSID bytes, advertised security and
+PMF, alongside both counter types. No new radio method or frame changes are
+included. The user's 1.0.2 runs accepted approximately 24,150 submissions in
+30 seconds without API/channel errors, but their PC stayed connected; that
+observation does not establish where reception failed. PMF was not advertised
+in the scan, so the logs provide no positive evidence of PMF rejection.
+Deauthentication is outside the frame types officially supported by
+`esp_wifi_80211_tx` in IDF 5.5.5. The historical private sanity-check override
+remains unverified with this SDK. Independent over-air capture is needed to
+confirm frame contents and reception if completion diagnostics are inconclusive.
+
+SDK API and callback: https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32/api-reference/network/esp_wifi.html#_CPPv417esp_wifi_80211_tx16wifi_interface_tPKvib
+
 The 1.0 preview has been observed on a user's board reporting zero accepted
 transmissions and repeated failures. The underlying SDK code was discarded,
 so that observation alone does not identify driver rejection versus a channel

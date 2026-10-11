@@ -45,6 +45,16 @@ void attack_note_tx(bool success, unsigned target) {
     attack_unlock();
 }
 
+void attack_controller_diagnostics(uint32_t id, uint32_t ok, uint32_t failed,
+                                   bool registered, esp_err_t callback_error) {
+    attack_lock();
+    if (job.id == id && job.type == ATTACK_TYPE_CONTROLLER) {
+        job.tx_done_ok = ok; job.tx_done_fail = failed;
+        job.tx_callback_registered = registered; job.tx_callback_error = callback_error;
+    }
+    attack_unlock();
+}
+
 esp_err_t attack_controller_failure_request(uint32_t id, esp_err_t error,
                                            const char *stage, unsigned target) {
     if (error == ESP_OK || !stage || target >= MAX_JOB_TARGETS) return ESP_ERR_INVALID_ARG;
@@ -236,6 +246,8 @@ esp_err_t attack_scan_submit(void) {
         ++job.id; job.type = 0; job.count = 0; job.scanning = true; job.reason[0] = 0;
         job.started_us = job.ended_us = 0; job.sent = job.tx_errors = job.channel_errors = 0;
         job.radio_error = ESP_OK; job.radio_stage[0] = 0;
+        job.tx_done_ok = job.tx_done_fail = 0;
+        job.tx_callback_registered = false; job.tx_callback_error = ESP_OK;
         attack_status.state = RUNNING; attack_status.type = 0;
     }
     attack_unlock(); return err;

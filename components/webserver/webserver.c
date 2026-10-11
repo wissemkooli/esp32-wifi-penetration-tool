@@ -194,6 +194,12 @@ static cJSON *job_json(void) {
     cJSON_AddNumberToObject(object, "elapsed", (job->started_us ?
         ((job->ended_us ? job->ended_us : esp_timer_get_time()) - job->started_us) / 1000000.0 : 0));
     cJSON_AddNumberToObject(object, "sent", job->sent); cJSON_AddNumberToObject(object, "tx_errors", job->tx_errors);
+    cJSON_AddNumberToObject(object, "tx_accepted", job->sent);
+    cJSON_AddNumberToObject(object, "tx_done_ok", job->tx_done_ok);
+    cJSON_AddNumberToObject(object, "tx_done_fail", job->tx_done_fail);
+    cJSON_AddBoolToObject(object, "tx_callback_registered", job->tx_callback_registered);
+    cJSON_AddNumberToObject(object, "tx_callback_error_code", job->tx_callback_error);
+    cJSON_AddStringToObject(object, "tx_callback_error_name", job->tx_callback_error ? esp_err_to_name(job->tx_callback_error) : "");
     cJSON_AddNumberToObject(object, "channel_errors", job->channel_errors);
     cJSON_AddNumberToObject(object, "radio_error_code", job->radio_error);
     cJSON_AddStringToObject(object, "radio_error_name", job->radio_error ? esp_err_to_name(job->radio_error) : "");

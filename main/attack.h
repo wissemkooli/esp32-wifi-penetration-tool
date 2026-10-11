@@ -68,6 +68,10 @@ enum { ATTACK_TYPE_CONTROLLER = 4, MAX_JOB_TARGETS = 8 };
 typedef struct {
     char boot_id[17];
     uint32_t id, scan_generation, sent, tx_errors, channel_errors;
+    /* sent is the legacy name for SDK-accepted submissions, not peer receipt. */
+    uint32_t tx_done_ok, tx_done_fail;
+    bool tx_callback_registered;
+    esp_err_t tx_callback_error;
     esp_err_t radio_error;
     char radio_stage[16];
     uint8_t type, method, timeout, count, current_target, ssid_len;
@@ -86,6 +90,9 @@ esp_err_t attack_scan_submit(void);
 esp_err_t attack_legacy_scan(void);
 esp_err_t attack_stop_request(const char *boot_id, uint32_t id);
 void attack_note_tx(bool success, unsigned target);
+/* Called by the manager after the controller stops; never from the Wi-Fi callback. */
+void attack_controller_diagnostics(uint32_t id, uint32_t ok, uint32_t failed,
+                                   bool registered, esp_err_t callback_error);
 /* Called by the controller after its radio calls have stopped. Job identity guards
  * against late failure notifications affecting a later operation. */
 esp_err_t attack_controller_failure_request(uint32_t id, esp_err_t error,

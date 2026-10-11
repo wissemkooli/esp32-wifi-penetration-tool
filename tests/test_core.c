@@ -384,6 +384,11 @@ static void test_unified_jobs(void) {
     dispatch(); assert(controlling);
     attack_note_tx(true,0); attack_note_tx(false,0);
     assert(attack_get_job()->sent==1 && attack_get_job()->tx_errors==1);
+    attack_controller_diagnostics(id,1,2,true,ESP_OK);
+    attack_controller_diagnostics(id-1,100,100,false,ESP_FAIL);
+    assert(attack_get_job()->tx_done_ok==1 && attack_get_job()->tx_done_fail==2 && attack_get_job()->tx_callback_registered);
+    req=(httpd_req_t){0}; job_get(&req);
+    assert(strstr((char *)req.response,"\"tx_accepted\":1") && strstr((char *)req.response,"\"tx_done_fail\":2")); clear_response(&req);
     assert(attack_stop_request("stale",id)==ESP_ERR_NOT_FOUND);
     assert(attack_stop_request(boot,id-1)==ESP_ERR_NOT_FOUND);
     serial_console_execute("cancel",response,sizeof(response)); assert(strstr(response,"selected=0"));
