@@ -177,7 +177,7 @@ static const char *job_state(void) {
     if (job->stopping) return "stopping";
     if (attack_get_status()->state == RUNNING) return "running";
     if (attack_get_status()->state == READY) return "idle";
-    return !strcmp(job->reason, "setup_failed") || !strncmp(job->reason, "ESP_", 4) ? "error" : "complete";
+    return job->radio_error || !strcmp(job->reason, "setup_failed") || !strncmp(job->reason, "ESP_", 4) ? "error" : "complete";
 }
 static cJSON *job_json(void) {
     const attack_job_t *job = attack_get_job();
@@ -194,6 +194,10 @@ static cJSON *job_json(void) {
     cJSON_AddNumberToObject(object, "elapsed", (job->started_us ?
         ((job->ended_us ? job->ended_us : esp_timer_get_time()) - job->started_us) / 1000000.0 : 0));
     cJSON_AddNumberToObject(object, "sent", job->sent); cJSON_AddNumberToObject(object, "tx_errors", job->tx_errors);
+    cJSON_AddNumberToObject(object, "channel_errors", job->channel_errors);
+    cJSON_AddNumberToObject(object, "radio_error_code", job->radio_error);
+    cJSON_AddStringToObject(object, "radio_error_name", job->radio_error ? esp_err_to_name(job->radio_error) : "");
+    cJSON_AddStringToObject(object, "radio_error_stage", job->radio_stage);
     cJSON_AddNumberToObject(object, "current_target", job->current_target);
     if (job->count) {
         char ssid[65], bssid[13]; hex_string(ssid, job->ssid, job->ssid_len);
@@ -232,7 +236,8 @@ static esp_err_t job_get(httpd_req_t *req) {
 static esp_err_t device_get(httpd_req_t *req) {
     cJSON *value = cJSON_CreateObject();
     cJSON_AddNumberToObject(value, "schema_version", 1);
-    cJSON_AddStringToObject(value, "firmware", "unified-1.0.0");
+    cJSON_AddStringToObject(value, "firmware", "unified-1.0.1");
+    cJSON_AddStringToObject(value, "idf_version", "v5.5.5");
     cJSON_AddStringToObject(value, "chip", "esp32"); cJSON_AddStringToObject(value, "band", "2.4 GHz");
     cJSON_AddNumberToObject(value, "max_targets", MAX_JOB_TARGETS);
     cJSON_AddStringToObject(value, "management_ssid", CONFIG_MGMT_AP_SSID);

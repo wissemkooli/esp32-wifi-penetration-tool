@@ -14,7 +14,7 @@ const server=createServer(async(req,res)=>{
   if(disconnected && path.startsWith('/api/')) {req.socket.destroy();return;}
   let body=''; for await(const chunk of req)body+=chunk;
   const json=value=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
-  if(path==='/api/v1/device')return json({boot_id:job.boot_id,management_ssid:'ManagementAP'});
+  if(path==='/api/v1/device')return json({boot_id:job.boot_id,management_ssid:'ManagementAP',firmware:'unified-1.0.1',chip:'esp32'});
   if(path==='/api/v1/networks')return json({scan_generation:1,networks:[{id:0,ssid_hex:Buffer.from('<img src=x onerror=alert(1)>').toString('hex'),
     bssid:'021122334455',channel:1,rssi:-71,security:'WPA2-Personal',pmf:'Supported, optional'}]});
   if(path==='/api/v1/job')return json(job);
@@ -76,6 +76,25 @@ try {
   await page.waitForFunction(()=>document.querySelector('#connection').textContent==='Device connected');
   await page.locator('#stop-device').click();
   await page.waitForFunction(()=>document.querySelector('#device-state').textContent==='complete');
+
+  // Exact driver errors survive reconnects and enable starting a later job.
+  job={...job,state:'error',reason:'radio_failure',radio_error_code:258,
+    radio_error_stage:'transmit',radio_error_name:'ESP_ERR_INVALID_ARG',current_target:0,tx_errors:1,channel_errors:0};
+  await page.waitForFunction(()=>document.querySelector('#device-state').textContent==='error');
+  assert.match(await page.locator('#device-progress').textContent(),/transmit: ESP_ERR_INVALID_ARG \(0x102\)/);
+  assert.equal(await page.locator('#capture').isEnabled(),true);
+  assert.equal(await page.locator('#stop-device').isEnabled(),false);
+  const downloaded=page.waitForEvent('download');
+  await page.locator('#save-device-log').click();
+  const logFile=await downloaded;
+  assert.match(logFile.suggestedFilename(),/^esp32-device-log-.*\.txt$/);
+  const diagnostics=await readFile(await logFile.path(),'utf8');
+  assert.match(diagnostics,/Firmware: unified-1\.0\.1/);
+  assert.match(diagnostics,/ESP_ERR_INVALID_ARG/);
+  assert.match(diagnostics,/"radio_error_stage":"transmit"/);
+  assert.equal(diagnostics.includes(oracle.password),false);
+  assert.equal(diagnostics.includes('wrong-word-'),false);
+  job={...job,radio_error_code:0,radio_error_stage:'',radio_error_name:'',tx_errors:0};
 
   // Capture & Audit transfers a completed capture and starts the selected local mode.
   await page.locator('#audit-mode').selectOption('verify');await page.locator('#password').fill(oracle.password);

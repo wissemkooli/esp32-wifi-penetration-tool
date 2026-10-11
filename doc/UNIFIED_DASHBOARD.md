@@ -117,6 +117,35 @@ They use the same radio manager; legacy downloads have no identity protection.
 
 ## Optional USB serial
 
+### Controller diagnostics (1.0.1)
+
+The 1.0 preview has been observed on a user's board reporting zero accepted
+transmissions and repeated failures. The underlying SDK code was discarded,
+so that observation alone does not identify driver rejection versus a channel
+switch failure. Transmission compatibility remains unverified.
+
+Version 1.0.1 stops the controller on the first SDK failure. The dashboard and
+`/api/v1/job` preserve `radio_error_code`, `radio_error_name`,
+`radio_error_stage` (channel, transmit, promiscuous or task), and
+`current_target`. Channel failures increment `channel_errors`; only failed
+transmission submissions increment `tx_errors`. A queue retry does not count
+the same error again. The manager restores ManagementAP on failure, and the
+failure remains available after reconnection until another operation starts.
+
+USB serial logs include firmware/SDK version, session/job identity, selected
+BSSID/channel, and the first failing call's error name and hexadecimal code.
+Connect Serial USB Terminal at 115200 baud, 8N1, no flow control. Close the
+flashing app first. Send `status` after failure to retrieve the retained error.
+Send the dashboard error screenshot and controller log lines for diagnosis.
+Alternatively tap **Save device log** in Capture / Controller to download a
+`.txt` file on the phone, then attach it to the conversation. It contains the
+last 200 changes observed by this open page and the exact retained SDK failure.
+It remains available during loss of device contact. It does not contain full
+boot/SDK console output or offline audit results, passwords or wordlists. Save
+it before reloading the page. USB serial is needed for full console logs.
+No password or wordlist is written into these diagnostics. This update does
+not change frame construction or the driver's transmission restrictions.
+
 USB serial at 115200 baud shares the browser's manager:
 `scan`, `list`, `all`, `0,2,5`, `start`, `stop`, `status`, `limit 30`, `cancel`,
 and `help`. Wait for the asynchronous scan to finish, then use `list`.

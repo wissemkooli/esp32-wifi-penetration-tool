@@ -390,6 +390,31 @@ static void test_unified_jobs(void) {
     dispatch(); assert(!controlling && !timer.armed && !strcmp(attack_get_job()->reason,"cancelled"));
     assert(attack_submit_job(&index,1,4,0,5,scan)==ESP_OK); dispatch();
     expire(); dispatch(); assert(!controlling && !strcmp(attack_get_job()->reason,"deadline"));
+    /* Driver errors are retained across a full queue, counted once, surfaced in
+     * HTTP/serial, and stop through the same restoration path as other jobs. */
+    assert(attack_submit_job(&index,1,4,0,5,scan)==ESP_OK); dispatch();
+    id=attack_get_job()->id; old_restored=restored; fail_posts=true;
+    assert(attack_controller_failure_request(id,ESP_ERR_INVALID_ARG,"transmit",0)==ESP_ERR_TIMEOUT);
+    assert(attack_get_job()->tx_errors==1 && attack_get_job()->radio_error==ESP_ERR_INVALID_ARG);
+    fail_posts=false;
+    assert(attack_controller_failure_request(id,ESP_ERR_INVALID_ARG,"transmit",0)==ESP_OK);
+    dispatch(); assert(!controlling && !timer.armed && restored>old_restored);
+    assert(attack_get_job()->tx_errors==1 && !strcmp(attack_get_job()->reason,"radio_failure"));
+    req=(httpd_req_t){0}; job_get(&req);
+    assert(strstr((char *)req.response,"\"state\":\"error\"") && strstr((char *)req.response,"\"radio_error_code\":258"));
+    assert(strstr((char *)req.response,"\"radio_error_stage\":\"transmit\"")); clear_response(&req);
+    serial_console_execute("status",response,sizeof(response));
+    assert(strstr(response,"stage=transmit") && strstr(response,"0x102"));
+    assert(attack_submit_job(&index,1,4,0,5,scan)==ESP_OK); dispatch();
+    assert(!attack_get_job()->radio_error && !attack_get_job()->tx_errors);
+    assert(attack_controller_failure_request(id,ESP_FAIL,"channel",0)==ESP_ERR_INVALID_STATE);
+    assert(controlling && !attack_get_job()->radio_error);
+    id=attack_get_job()->id; fail_posts=true;
+    assert(attack_controller_failure_request(id,ESP_FAIL,"channel",0)==ESP_ERR_TIMEOUT);
+    assert(attack_get_job()->channel_errors==1 && !attack_get_job()->tx_errors);
+    fail_posts=false; expire(); dispatch();
+    assert(!controlling && !strcmp(attack_get_job()->reason,"radio_failure"));
+    assert(!strcmp(job_state(),"error"));
     old_restored=restored; fail_method=true;
     assert(attack_submit_job(&index,1,4,0,5,scan)==ESP_OK); dispatch(); fail_method=false;
     assert(!controlling && !timer.armed && restored>old_restored);

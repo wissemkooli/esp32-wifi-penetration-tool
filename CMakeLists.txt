@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-set(PROJECT_VER "unified-1.0.0")
+set(PROJECT_VER "unified-1.0.1")
 project(esp32-wifi-penetration-tool)
 
 if(NOT IDF_TARGET STREQUAL "esp32")

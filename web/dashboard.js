@@ -6,6 +6,27 @@ let device, job, scanGeneration = 0, lastScan = -1, networkRows = [], pollTimer,
 let worker, workerEpoch = 0, requestSequence = 0, workerRequest = '', auditing = false, inspecting = false;
 let captureSequence = 0, activeCapture, auditSsidHex = '', ssidDisplay = '', autoOptions;
 const captures = new Map(), fetched = new Set(), pendingAudit = new Map(), auditQueue = [];
+const deviceLog = [];
+let lastDeviceLog = '';
+function recordDeviceLog() {
+  const fields=['boot_id','id','state','type','method','timeout','sent','tx_errors','channel_errors',
+    'reason','radio_error_code','radio_error_name','radio_error_stage','current_target','targets','channel'];
+  const snapshot=Object.fromEntries(fields.filter(key=>job[key]!==undefined).map(key=>[key,job[key]]));
+  const signature=JSON.stringify(snapshot);
+  if (signature===lastDeviceLog) return;
+  lastDeviceLog=signature;
+  deviceLog.push(`${new Date().toISOString()} elapsed=${Number(job.elapsed || 0).toFixed(3)}s ${signature}`);
+  if (deviceLog.length>200) deviceLog.shift();
+}
+function saveDeviceLog() {
+  const header=['Wi-Fi Audit device diagnostics',`Exported: ${new Date().toISOString()}`,
+    `Firmware: ${device?.firmware || 'unknown'}`,`Chip: ${device?.chip || 'unknown'}`,
+    `ESP-IDF: ${device?.idf_version || 'unknown'}`,
+    'Browser-observed job status (last 200 changes); full boot/SDK logs require USB serial.',
+    'Passwords, wordlists and offline audit results are excluded.',''];
+  download(new Blob([[...header,...deviceLog].join('\n')+'\n'],{type:'text/plain;charset=utf-8'}),
+    `esp32-device-log-${job?.boot_id || 'unknown'}-${job?.id || 0}.txt`);
+}
 function badge(id, label, state='') { text(id,label); $(id).className = `badge ${state}`; }
 function message(value='') { text('message',value); }
 async function request(path, options={}, binary=false) {
@@ -22,6 +43,7 @@ function controls() {
   $('start-audit').disabled = auditing || inspecting || !$('pair').value;
   $('cancel-audit').disabled = !auditing && !inspecting;
   $('save-capture').disabled = !activeCapture;
+  $('save-device-log').disabled = !deviceLog.length;
   for (const id of ['capture-choice','import','pair']) $(id).disabled = auditing || inspecting;
 }
 function operationFields() {
@@ -74,8 +96,10 @@ async function startCapture(withAudit) {
   } catch (error) { message(error.message); }
 }
 function renderJob() {
+  recordDeviceLog();
   badge('device-state',job.state,busy()?'busy':job.state==='error'?'offline':'');
-  text('device-progress',`${job.state} · ${(job.elapsed || 0).toFixed(1)} s · sent ${job.sent || 0} · errors ${job.tx_errors || 0}${job.reason ? ' · '+job.reason : ''}`);
+  const error=job.radio_error_code ? ` · ${job.radio_error_stage}: ${job.radio_error_name} (0x${(job.radio_error_code >>> 0).toString(16)}) · target ${(job.current_target || 0)+1}` : '';
+  text('device-progress',`${job.state} · ${(job.elapsed || 0).toFixed(1)} s · sent ${job.sent || 0} · TX errors ${job.tx_errors || 0} · channel errors ${job.channel_errors || 0}${job.reason ? ' · '+job.reason : ''}${error}`);
   controls();
 }
 const schedulePoll = (delay=1000) => { clearTimeout(pollTimer); pollTimer=setTimeout(poll,delay); };
@@ -110,6 +134,7 @@ async function poll() {
 function download(blob,name) {
   const url=URL.createObjectURL(blob), link=document.createElement('a'); link.href=url; link.download=name; link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
+$('save-device-log').addEventListener('click',saveDeviceLog);
 function renderResult() {
   $('device-result').replaceChildren();
   if (job.pcap && captures.has(identity(job))) {

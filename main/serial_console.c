@@ -31,9 +31,11 @@ void serial_console_execute(const char *line, char *out, size_t capacity) {
     attack_lock(); const attack_job_t *job = attack_get_job();
     if (!strcmp(command, "scan")) err = attack_scan_submit();
     else if (!strcmp(command, "status")) {
-        snprintf(out, capacity, "session=%s job=%lu state=%u scanning=%d tx=%lu err=%lu selected=%u",
+        snprintf(out, capacity, "session=%s job=%lu state=%u scanning=%d tx=%lu err=%lu channel_err=%lu selected=%u reason=%s stage=%s error=%s (0x%x)",
             job->boot_id, (unsigned long)job->id, attack_get_status()->state, job->scanning,
-            (unsigned long)job->sent, (unsigned long)job->tx_errors, selected_count);
+            (unsigned long)job->sent, (unsigned long)job->tx_errors, (unsigned long)job->channel_errors,
+            selected_count, job->reason, job->radio_stage,
+            job->radio_error ? esp_err_to_name(job->radio_error) : "ESP_OK", (unsigned)job->radio_error);
         attack_unlock(); return;
     } else if (!strcmp(command, "start")) {
         err = attack_submit_job(selected, selected_count, ATTACK_TYPE_CONTROLLER, 0, duration, selection_scan);
