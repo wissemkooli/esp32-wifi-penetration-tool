@@ -26,7 +26,7 @@ static const char* TAG = "main";
 void app_main(void)
 {
     ESP_LOGD(TAG, "app_main started");
-    ESP_LOGI(TAG, "Firmware unified-1.0.1; ESP-IDF %s; target esp32", esp_get_idf_version());
+    ESP_LOGI(TAG, "Firmware unified-1.0.2; ESP-IDF %s; target esp32", esp_get_idf_version());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     wifictl_mgmt_ap_start();
     attack_init();

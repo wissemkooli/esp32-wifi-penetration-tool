@@ -9,11 +9,11 @@
 <tbody id="networks"></tbody></table></div><p id="network-status" class="hint">Loading saved scan…</p></section>
 <section class="panel"><div class="heading"><div><span class="step">02</span><h2>Capture / Controller</h2></div><span id="device-state" class="badge">Idle</span></div>
 <div class="fields"><label>Operation<select id="operation"><option value="1">Handshake capture</option><option value="2">PMKID capture</option>
-<option value="4">Controller test · up to eight targets</option><option value="3">Legacy controller method</option></select></label>
+<option value="4">Deauthentication controller · up to eight targets</option><option value="3">Legacy controller method</option></select></label>
 <label>Method<select id="method"><option value="2">Passive capture only</option><option value="1">Broadcast deauthentication</option><option value="0">Rogue AP</option></select></label>
 <label>Duration (seconds)<input id="duration" type="number" min="1" max="255" value="60"></label></div>
 <div class="actions"><button id="capture" class="primary">Start capture / test</button><button id="capture-audit">Capture &amp; audit</button><button id="stop-device" class="danger" disabled>Stop device</button><button id="save-device-log" disabled>Save device log</button></div>
-<p id="device-progress" role="status">No radio operation running.</p><p class="hint">The radio runs one operation at a time. Channel changes may interrupt the connection; keep this page open and reconnect to ManagementAP if needed. The device stops at its own time limit.</p>
+<p id="device-progress" role="status">No radio operation running.</p><p id="radio-hint" class="hint">The radio runs one operation at a time. During controller tests, ManagementAP pauses until the job ends. Keep this page open and reconnect to ManagementAP afterward. The device stops at its own time limit.</p>
 <div id="device-result"></div></section>
 <section class="panel"><div class="heading"><div><span class="step">03</span><h2>Offline Audit</h2></div><span id="audit-state" class="badge">Ready</span></div>
 <p class="hint">Runs on your phone. Passwords and wordlists are never uploaded. You can audit a saved capture while the ESP32 works.</p>

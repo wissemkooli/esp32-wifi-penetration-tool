@@ -7,6 +7,10 @@
 static attack_job_t current = {.id=7};
 static TaskFunction_t pending_task;
 static bool fail_task, fail_channel, fail_promisc;
+static bool wifi_started = true, phone_connected = true, mismatch;
+static wifi_mode_t wifi_mode = WIFI_MODE_APSTA;
+static unsigned stop_calls, start_calls, mode_calls;
+static esp_err_t stop_error, start_error, mode_error, restore_error;
 static unsigned channel_calls, tx_calls, sent, failures, post_retries, deleted;
 static char observed_stage[16];
 static esp_err_t observed_error;
@@ -28,8 +32,31 @@ int xTaskCreate(TaskFunction_t fn, const char *name, unsigned stack, void *arg, 
 void vTaskDelay(unsigned ticks) { assert(ticks>0); }
 void vTaskDelete(void *handle) { ++deleted; }
 void esp_rom_delay_us(unsigned us) { assert(us==1000); }
+esp_err_t esp_wifi_stop(void) {
+    ++stop_calls;
+    if (stop_error) return stop_error;
+    wifi_started=false; phone_connected=false; return ESP_OK;
+}
+esp_err_t esp_wifi_start(void) {
+    ++start_calls;
+    if (start_error) return start_error;
+    wifi_started=true; return ESP_OK;
+}
+esp_err_t esp_wifi_set_mode(wifi_mode_t mode) {
+    assert(!wifi_started); ++mode_calls;
+    if (mode_error) return mode_error;
+    if (restore_error && mode==WIFI_MODE_APSTA) return restore_error;
+    wifi_mode=mode; return ESP_OK;
+}
+esp_err_t esp_wifi_get_channel(uint8_t *channel, wifi_second_chan_t *secondary) {
+    *channel=mismatch?1:10; *secondary=WIFI_SECOND_CHAN_NONE; return ESP_OK;
+}
 esp_err_t esp_wifi_set_channel(uint8_t ch, int secondary) {
     assert(ch==10 && secondary==WIFI_SECOND_CHAN_NONE); ++channel_calls;
+    assert(wifi_started);
+    /* Reproduce the user's failure with a phone connected to APSTA. */
+    if (wifi_mode==WIFI_MODE_APSTA && phone_connected) return ESP_FAIL;
+    assert(wifi_mode==WIFI_MODE_STA && !phone_connected);
     return fail_channel ? ESP_FAIL : ESP_OK;
 }
 esp_err_t esp_wifi_set_promiscuous(bool enabled) { return enabled && fail_promisc ? ESP_FAIL : ESP_OK; }
@@ -42,6 +69,13 @@ static void reset(void) {
     fail_task=fail_channel=fail_promisc=false;
     channel_calls=tx_calls=sent=failures=post_retries=deleted=0;
     pending_task=NULL; observed_stage[0]=0; observed_error=ESP_OK; ++current.id;
+    wifi_started=phone_connected=true; wifi_mode=WIFI_MODE_APSTA; mismatch=false;
+    stop_calls=start_calls=mode_calls=0;
+    stop_error=start_error=mode_error=restore_error=ESP_OK;
+}
+static void stop_and_check(void) {
+    controller_stop(); assert(wifi_started && wifi_mode==WIFI_MODE_APSTA);
+    assert(stop_calls==2 && mode_calls==2 && start_calls==2);
 }
 int main(void) {
     wifi_ap_record_t target={.primary=10,.bssid={2,0,0,0,0,1}};
@@ -50,24 +84,46 @@ int main(void) {
     assert(controller_start(&target,1)==ESP_OK); pending_task(NULL);
     assert(channel_calls==1 && tx_calls==0 && failures==1 && deleted==1);
     assert(!strcmp(observed_stage,"channel") && observed_error==ESP_FAIL);
-    controller_stop();
+    stop_and_check();
     reset(); post_retries=2;
     assert(controller_start(&target,1)==ESP_OK); pending_task(NULL);
     assert(channel_calls==1 && tx_calls==3 && sent==2 && failures==3 && deleted==1);
     assert(!strcmp(observed_stage,"transmit") && observed_error==ESP_ERR_INVALID_ARG);
-    controller_stop();
+    stop_and_check();
     reset(); fail_promisc=true;
-    assert(controller_start(&target,1)==ESP_FAIL && !pending_task);
-    assert(!strcmp(observed_stage,"promiscuous")); controller_stop();
+    assert(controller_start(&target,1)==ESP_OK); pending_task(NULL);
+    assert(!strcmp(observed_stage,"promiscuous")); stop_and_check();
     reset(); fail_task=true;
     assert(controller_start(&target,1)==ESP_ERR_NO_MEM && !pending_task);
     assert(!strcmp(observed_stage,"task")); controller_stop();
+    assert(!stop_calls && !mode_calls && !start_calls && phone_connected);
     reset();
     assert(controller_start(&target,1)==ESP_OK);
     assert(controller_start(&target,1)==ESP_ERR_INVALID_ARG);
     /* Request cancellation before scheduling the worker: no further SDK calls. */
     atomic_store(&running,false); pending_task(NULL);
     assert(!tx_calls && !channel_calls && !failures && deleted==1); controller_stop();
-    puts("PASS: actual controller stops on channel/TX failures, exact stage/code, queue retries, setup failure and cancellation");
+    assert(!stop_calls && !mode_calls && !start_calls && phone_connected);
+    /* Setup failures must leave enough state for cleanup to restore APSTA. */
+    reset(); stop_error=ESP_FAIL;
+    assert(controller_start(&target,1)==ESP_OK); pending_task(NULL);
+    assert(!strcmp(observed_stage,"radio_stop")); stop_error=ESP_OK;
+    controller_stop(); assert(wifi_started && wifi_mode==WIFI_MODE_APSTA);
+    reset(); mode_error=ESP_FAIL;
+    assert(controller_start(&target,1)==ESP_OK); pending_task(NULL);
+    assert(!strcmp(observed_stage,"mode")); mode_error=ESP_OK;
+    controller_stop(); assert(wifi_started && wifi_mode==WIFI_MODE_APSTA);
+    reset(); start_error=ESP_FAIL;
+    assert(controller_start(&target,1)==ESP_OK); pending_task(NULL);
+    assert(!strcmp(observed_stage,"radio_start")); start_error=ESP_OK;
+    controller_stop(); assert(wifi_started && wifi_mode==WIFI_MODE_APSTA);
+    reset(); mismatch=true;
+    assert(controller_start(&target,1)==ESP_OK); pending_task(NULL);
+    assert(!tx_calls && !strcmp(observed_stage,"channel_check")); stop_and_check();
+    reset();
+    assert(controller_start(&target,1)==ESP_OK); pending_task(NULL);
+    restore_error=ESP_FAIL; controller_stop();
+    assert(!strcmp(observed_stage,"restore_mode") && observed_error==ESP_FAIL);
+    puts("PASS: actual controller releases APSTA phone channel lock, restores APSTA, rejects channel mismatch, stops on SDK failure, retries queue and handles cancellation/setup failures");
     return 0;
 }

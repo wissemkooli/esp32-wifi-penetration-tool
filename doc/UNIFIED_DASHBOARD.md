@@ -117,6 +117,35 @@ They use the same radio manager; legacy downloads have no identity protection.
 
 ## Optional USB serial
 
+### Controller channel handoff fix (1.0.2)
+
+The user's 1.0.1 log identifies `ESP_FAIL` at `stage=channel`, with no
+transmission submissions. The controller attempted `esp_wifi_set_channel()`
+in APSTA mode while a phone remained connected to ManagementAP, violating
+the documented SDK precondition. This is a confirmed code defect; the generic
+SDK error alone cannot prove every cause of a physical radio failure.
+
+Version 1.0.2 moves radio setup to the cooperative controller task, allowing
+the browser's submission response to be sent before a short 150 ms handoff.
+The task stops Wi-Fi, selects STA mode, restarts Wi-Fi, then enables monitor
+mode. ManagementAP is absent for the entire timed controller operation so the
+phone cannot reconnect and lock the channel between target passes. Requested
+channels are read back before any transmission attempt. Cancellation before
+handoff leaves ManagementAP running. Stop, deadline and failures join the
+producer and restore APSTA; the shared manager reapplies ManagementAP's
+configuration. Failed task creation never takes down ManagementAP.
+
+Keep the page open. After the timed operation, reconnect to ManagementAP and
+save the device log. Browser Stop is unavailable during loss of contact;
+USB serial `stop` or board reset can end a test early. The independent device
+deadline remains active. Use a short duration for the first hardware check.
+Setup and restoration failures retain their own stages and console logs.
+Tests emulate a phone holding the APSTA channel, mode transitions, failed
+starts, cancellation and restoration. Physical DevKit validation is pending,
+and successful channel setup does not establish transmission compatibility.
+
+SDK channel preconditions: https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32/api-reference/network/esp_wifi.html#_CPPv420esp_wifi_set_channel7uint8_t17wifi_second_chan_t
+
 ### Controller diagnostics (1.0.1)
 
 The 1.0 preview has been observed on a user's board reporting zero accepted

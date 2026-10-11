@@ -56,7 +56,7 @@ esp_err_t attack_controller_failure_request(uint32_t id, esp_err_t error,
     if (!job.radio_error) {
         job.radio_error = error; job.current_target = target;
         snprintf(job.radio_stage, sizeof(job.radio_stage), "%s", stage);
-        if (!strcmp(stage, "channel")) ++job.channel_errors;
+        if (!strncmp(stage, "channel", 7)) ++job.channel_errors;
         else if (!strcmp(stage, "transmit")) ++job.tx_errors;
         snprintf(job.reason, sizeof(job.reason), "radio_failure");
     }
@@ -212,6 +212,7 @@ static void attack_request_handler(void *arg, esp_event_base_t base, int32_t id,
         case ATTACK_TYPE_CONTROLLER:
             err = controller_start(job.targets, job.count);
             if (err != ESP_OK) {
+                controller_stop();
                 if (!job.radio_error) attack_set_error(esp_err_to_name(err));
                 attack_update_status(TIMEOUT);
             }

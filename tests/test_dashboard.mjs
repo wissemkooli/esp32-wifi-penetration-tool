@@ -14,7 +14,7 @@ const server=createServer(async(req,res)=>{
   if(disconnected && path.startsWith('/api/')) {req.socket.destroy();return;}
   let body=''; for await(const chunk of req)body+=chunk;
   const json=value=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
-  if(path==='/api/v1/device')return json({boot_id:job.boot_id,management_ssid:'ManagementAP',firmware:'unified-1.0.1',chip:'esp32'});
+  if(path==='/api/v1/device')return json({boot_id:job.boot_id,management_ssid:'ManagementAP',firmware:'unified-1.0.2',chip:'esp32'});
   if(path==='/api/v1/networks')return json({scan_generation:1,networks:[{id:0,ssid_hex:Buffer.from('<img src=x onerror=alert(1)>').toString('hex'),
     bssid:'021122334455',channel:1,rssi:-71,security:'WPA2-Personal',pmf:'Supported, optional'}]});
   if(path==='/api/v1/job')return json(job);
@@ -89,12 +89,22 @@ try {
   const logFile=await downloaded;
   assert.match(logFile.suggestedFilename(),/^esp32-device-log-.*\.txt$/);
   const diagnostics=await readFile(await logFile.path(),'utf8');
-  assert.match(diagnostics,/Firmware: unified-1\.0\.1/);
+  assert.match(diagnostics,/Firmware: unified-1\.0\.2/);
   assert.match(diagnostics,/ESP_ERR_INVALID_ARG/);
   assert.match(diagnostics,/"radio_error_stage":"transmit"/);
   assert.equal(diagnostics.includes(oracle.password),false);
   assert.equal(diagnostics.includes('wrong-word-'),false);
   job={...job,radio_error_code:0,radio_error_stage:'',radio_error_name:'',tx_errors:0};
+  await page.locator('#operation').selectOption('4');
+  assert.match(await page.locator('#method').textContent(),/Broadcast deauthentication/);
+  await page.locator('#capture').click();
+  await page.waitForFunction(()=>document.querySelector('#radio-hint').textContent.includes('ManagementAP pauses during this controller test'));
+  disconnected=true;
+  await page.waitForFunction(()=>document.querySelector('#connection').textContent==='Reconnecting…');
+  assert.equal(await page.locator('#save-device-log').isEnabled(),true);
+  job={...job,state:'complete',reason:'deadline'};disconnected=false;
+  await page.waitForFunction(()=>document.querySelector('#device-state').textContent==='complete');
+  await page.locator('#operation').selectOption('1');
 
   // Capture & Audit transfers a completed capture and starts the selected local mode.
   await page.locator('#audit-mode').selectOption('verify');await page.locator('#password').fill(oracle.password);

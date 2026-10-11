@@ -49,7 +49,7 @@ function controls() {
 function operationFields() {
   const operation = Number($('operation').value), select = $('method'); select.replaceChildren();
   const methods = operation === 1 ? [[2,'Passive capture only'],[1,'Broadcast deauthentication'],[0,'Rogue AP']] :
-    operation === 3 ? [[0,'Rogue AP'],[1,'Broadcast deauthentication'],[2,'Combined']] : [[0,'Not applicable']];
+    operation === 3 ? [[0,'Rogue AP'],[1,'Broadcast deauthentication'],[2,'Combined']] : [[0,operation===4?'Broadcast deauthentication':'Not applicable']];
   for (const [value,label] of methods) select.add(new Option(label,String(value)));
   select.disabled = operation === 2 || operation === 4;
   $('capture-audit').hidden = operation !== 1;
@@ -100,6 +100,9 @@ function renderJob() {
   badge('device-state',job.state,busy()?'busy':job.state==='error'?'offline':'');
   const error=job.radio_error_code ? ` · ${job.radio_error_stage}: ${job.radio_error_name} (0x${(job.radio_error_code >>> 0).toString(16)}) · target ${(job.current_target || 0)+1}` : '';
   text('device-progress',`${job.state} · ${(job.elapsed || 0).toFixed(1)} s · sent ${job.sent || 0} · TX errors ${job.tx_errors || 0} · channel errors ${job.channel_errors || 0}${job.reason ? ' · '+job.reason : ''}${error}`);
+  text('radio-hint',job.type===4 && busy() ?
+    `ManagementAP pauses during this controller test. It returns when the job ends, within the ${job.timeout}-second limit. Keep this page open and reconnect afterward. While disconnected, use USB serial Stop or reset the board to end it early.` :
+    'The radio runs one operation at a time. During controller tests, ManagementAP pauses until the job ends. Keep this page open and reconnect to ManagementAP afterward. The device stops at its own time limit.');
   controls();
 }
 const schedulePoll = (delay=1000) => { clearTimeout(pollTimer); pollTimer=setTimeout(poll,delay); };

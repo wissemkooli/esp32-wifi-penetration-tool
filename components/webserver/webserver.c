@@ -236,7 +236,7 @@ static esp_err_t job_get(httpd_req_t *req) {
 static esp_err_t device_get(httpd_req_t *req) {
     cJSON *value = cJSON_CreateObject();
     cJSON_AddNumberToObject(value, "schema_version", 1);
-    cJSON_AddStringToObject(value, "firmware", "unified-1.0.1");
+    cJSON_AddStringToObject(value, "firmware", "unified-1.0.2");
     cJSON_AddStringToObject(value, "idf_version", "v5.5.5");
     cJSON_AddStringToObject(value, "chip", "esp32"); cJSON_AddStringToObject(value, "band", "2.4 GHz");
     cJSON_AddNumberToObject(value, "max_targets", MAX_JOB_TARGETS);
