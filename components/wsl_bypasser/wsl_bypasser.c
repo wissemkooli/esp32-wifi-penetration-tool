@@ -45,7 +45,8 @@ int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3){
 }
 
 void wsl_bypasser_send_raw_frame(const uint8_t *frame_buffer, int size){
-    ESP_ERROR_CHECK(esp_wifi_80211_tx(WIFI_IF_AP, frame_buffer, size, false));
+    esp_err_t err = esp_wifi_80211_tx(WIFI_IF_AP, frame_buffer, size, false);
+    if (err != ESP_OK) ESP_LOGW(TAG, "Raw transmit rejected: %s", esp_err_to_name(err));
 }
 
 void wsl_bypasser_send_deauth_frame(const wifi_ap_record_t *ap_record){

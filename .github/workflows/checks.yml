@@ -1,0 +1,42 @@
+name: Firmware and regression checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Parsers, lifecycle, HTTP and UI
+        run: python tests/run_tests.py --sanitize
+  firmware:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - name: Build ESP32-WROOM-32 firmware
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          idf.py -B build-modern -DIDF_TARGET=esp32 build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: esp32-wroom32-firmware
+          path: |
+            build-modern/esp32-wifi-penetration-tool.bin
+            build-modern/bootloader/bootloader.bin
+            build-modern/partition_table/partition-table.bin
+            build-modern/flash_args
+            build-modern/flasher_args.json

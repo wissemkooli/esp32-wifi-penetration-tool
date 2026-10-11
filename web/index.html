@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wi-Fi Audit Dashboard</title><link rel="stylesheet" href="/style.css"></head>
+<body><header><div><p class="eyebrow">ESP32 · 2.4 GHz</p><h1>Wi-Fi Audit</h1><p>Discovery, capture and offline analysis in one place.</p></div>
+<span id="connection" class="badge">Connecting…</span></header>
+<main><section class="panel networks"><div class="heading"><div><span class="step">01</span><h2>Networks</h2></div>
+<button id="scan">Refresh scan</button></div><p class="hint">Security and PMF describe advertised capabilities, not verified enforcement.</p>
+<div class="scroll"><table><thead><tr><th>Select</th><th>Network</th><th>Channel</th><th>Signal</th><th>Security</th><th>PMF</th></tr></thead>
+<tbody id="networks"></tbody></table></div><p id="network-status" class="hint">Loading saved scan…</p></section>
+<section class="panel"><div class="heading"><div><span class="step">02</span><h2>Capture / Controller</h2></div><span id="device-state" class="badge">Idle</span></div>
+<div class="fields"><label>Operation<select id="operation"><option value="1">Handshake capture</option><option value="2">PMKID capture</option>
+<option value="4">Controller test · up to eight targets</option><option value="3">Legacy controller method</option></select></label>
+<label>Method<select id="method"><option value="2">Passive capture only</option><option value="1">Broadcast deauthentication</option><option value="0">Rogue AP</option></select></label>
+<label>Duration (seconds)<input id="duration" type="number" min="1" max="255" value="60"></label></div>
+<div class="actions"><button id="capture" class="primary">Start capture / test</button><button id="capture-audit">Capture &amp; audit</button><button id="stop-device" class="danger" disabled>Stop device</button></div>
+<p id="device-progress" role="status">No radio operation running.</p><p class="hint">The radio runs one operation at a time. Channel changes may interrupt the connection; keep this page open and reconnect to ManagementAP if needed. The device stops at its own time limit.</p>
+<div id="device-result"></div></section>
+<section class="panel"><div class="heading"><div><span class="step">03</span><h2>Offline Audit</h2></div><span id="audit-state" class="badge">Ready</span></div>
+<p class="hint">Runs on your phone. Passwords and wordlists are never uploaded. You can audit a saved capture while the ESP32 works.</p>
+<div class="fields"><label>Capture<select id="capture-choice"><option value="">No capture yet</option></select></label>
+<label>Import PCAP<input id="import" type="file" accept=".pcap,.cap"></label><label>Handshake exchange<select id="pair"><option value="">Inspect a capture first</option></select></label>
+<label>Exact SSID<input id="ssid" autocomplete="off" spellcheck="false" placeholder="Network name, including spaces"></label>
+<label>Audit mode<select id="audit-mode"><option value="verify">Verify a known password</option><option value="ssid">SSID patterns + common patterns</option><option value="wordlist">My wordlist</option></select></label>
+<label id="password-field">Known password<input id="password" type="password" autocomplete="off"></label>
+<label id="wordlist-field" hidden>Wordlist (.txt, .lst, .dic, .gz)<input id="wordlist" type="file" accept=".txt,.lst,.dic,.gz"></label>
+<label>Maximum attempts<input id="max-tries" type="number" value="100000" min="1" max="1000000"></label></div>
+<div class="actions"><button id="start-audit" class="primary" disabled>Start offline audit</button><button id="cancel-audit" class="danger" disabled>Cancel audit</button><button id="save-capture" disabled>Save selected capture</button></div>
+<p id="inspection" class="hint">Classic 802.11 PCAP, up to 32 MiB. WPA2 HMAC-SHA1 message pairs only.</p>
+<p id="audit-progress" role="status">Waiting for a capture.</p><pre id="audit-result"></pre>
+<p class="hint">Keep the browser open. Closing or suspending it can stop an audit. A search with no match is not proof of password strength.</p></section>
+</main><footer><span id="message" role="alert"></span><p>Unified dashboard 1.0 · ESP32-WROOM-32 · <a href="/licenses.txt">Cryptography license</a></p></footer>
+<script src="/dashboard.js" defer></script></body></html>

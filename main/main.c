@@ -18,6 +18,7 @@
 #include "attack.h"
 #include "wifi_controller.h"
 #include "webserver.h"
+#include "serial_console.h"
 
 static const char* TAG = "main";
 
@@ -28,4 +29,5 @@ void app_main(void)
     wifictl_mgmt_ap_start();
     attack_init();
     webserver_run();
+    serial_console_start();
 }

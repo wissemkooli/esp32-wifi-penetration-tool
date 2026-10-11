@@ -11,3 +11,8 @@ build/partition_table/*
 sdkconfig
 sdkconfig.old
 doc/api
+build-modern/
+build-tests/
+__pycache__/
+node_modules/
+web/dist/

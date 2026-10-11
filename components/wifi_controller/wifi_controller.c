@@ -48,14 +48,16 @@ static void wifi_init_apsta(){
     wifi_init = true;
 }
 
-void wifictl_ap_start(wifi_config_t *wifi_config) {
+esp_err_t wifictl_ap_start(wifi_config_t *wifi_config) {
     ESP_LOGD(TAG, "Starting AP...");
     if(!wifi_init){
         wifi_init_apsta();
     }
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, wifi_config));
-    ESP_LOGI(TAG, "AP started with SSID=%s", wifi_config->ap.ssid);
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_AP, wifi_config);
+    if (err != ESP_OK) return err;
+    ESP_LOGI(TAG, "AP started with SSID=%.*s", 32, wifi_config->ap.ssid);
+    return ESP_OK;
 }
 
 void wifictl_ap_stop(){
@@ -65,7 +67,7 @@ void wifictl_ap_stop(){
             .max_connection = 0
         },
     };
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_LOGD(TAG, "AP stopped");
 }
 
@@ -74,15 +76,21 @@ void wifictl_mgmt_ap_start(){
         .ap = {
             .ssid = CONFIG_MGMT_AP_SSID,
             .ssid_len = strlen(CONFIG_MGMT_AP_SSID),
+            .channel = CONFIG_MGMT_AP_CHANNEL,
             .password = CONFIG_MGMT_AP_PASSWORD,
             .max_connection = CONFIG_MGMT_AP_MAX_CONNECTIONS,
+#ifdef CONFIG_MGMT_AP_AUTH_ON
             .authmode = WIFI_AUTH_WPA2_PSK
+#else
+            .authmode = WIFI_AUTH_OPEN
+#endif
         },
     };
-    wifictl_ap_start(&mgmt_wifi_config);
+    esp_err_t err = wifictl_ap_start(&mgmt_wifi_config);
+    if (err != ESP_OK) ESP_LOGE(TAG, "Management AP: %s", esp_err_to_name(err));
 }
 
-void wifictl_sta_connect_to_ap(const wifi_ap_record_t *ap_record, const char password[]){
+esp_err_t wifictl_sta_connect_to_ap(const wifi_ap_record_t *ap_record, const char password[]){
     ESP_LOGD(TAG, "Connecting STA to AP...");
     if(!wifi_init){
         wifi_init_apsta();
@@ -92,34 +100,36 @@ void wifictl_sta_connect_to_ap(const wifi_ap_record_t *ap_record, const char pas
         .sta = {
             .channel = ap_record->primary,
             .scan_method = WIFI_FAST_SCAN,
-            .pmf_cfg.capable = false,
+            .bssid_set = true,
             .pmf_cfg.required = false
         },
     };
-    mempcpy(sta_wifi_config.sta.ssid, ap_record->ssid, 32);
+    memcpy(sta_wifi_config.sta.ssid, ap_record->ssid, 32);
+    memcpy(sta_wifi_config.sta.bssid, ap_record->bssid, 6);
 
     if(password != NULL){
         if(strlen(password) >= 64) {
             ESP_LOGE(TAG, "Password is too long. Max supported length is 64");
-            return;
+            return ESP_ERR_INVALID_ARG;
         }
         memcpy(sta_wifi_config.sta.password, password, strlen(password) + 1);
     }
 
-    ESP_LOGD(TAG, ".ssid=%s", sta_wifi_config.sta.ssid);
+    ESP_LOGD(TAG, ".ssid=%.*s", 32, sta_wifi_config.sta.ssid);
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &sta_wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_connect());
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &sta_wifi_config);
+    return err == ESP_OK ? esp_wifi_connect() : err;
 
 }
 
 void wifictl_sta_disconnect(){
-    ESP_ERROR_CHECK(esp_wifi_disconnect());
+    esp_err_t err = esp_wifi_disconnect();
+    if (err != ESP_OK) ESP_LOGW(TAG, "Disconnect: %s", esp_err_to_name(err));
 }
 
-void wifictl_set_ap_mac(const uint8_t *mac_ap){
+esp_err_t wifictl_set_ap_mac(const uint8_t *mac_ap){
     ESP_LOGD(TAG, "Changing AP MAC address...");
-    ESP_ERROR_CHECK(esp_wifi_set_mac(WIFI_IF_AP, mac_ap));
+    return esp_wifi_set_mac(WIFI_IF_AP, mac_ap);
 }
 
 void wifictl_get_ap_mac(uint8_t *mac_ap){
@@ -128,7 +138,8 @@ void wifictl_get_ap_mac(uint8_t *mac_ap){
 
 void wifictl_restore_ap_mac(){
     ESP_LOGD(TAG, "Restoring original AP MAC address...");
-    ESP_ERROR_CHECK(esp_wifi_set_mac(WIFI_IF_AP, original_mac_ap));
+    esp_err_t err = esp_wifi_set_mac(WIFI_IF_AP, original_mac_ap);
+    if (err != ESP_OK) ESP_LOGW(TAG, "Restore AP MAC: %s", esp_err_to_name(err));
 }
 
 void wifictl_get_sta_mac(uint8_t *mac_sta){

@@ -35,18 +35,23 @@ static void timer_send_deauth_frame(void *arg){
 /**
  * @details Starts periodic timer for sending deauthentication frame via timer_send_deauth_frame().
  */
-void attack_method_broadcast(const wifi_ap_record_t *ap_record, unsigned period_sec){
+esp_err_t attack_method_broadcast(const wifi_ap_record_t *ap_record, unsigned period_sec){
     const esp_timer_create_args_t deauth_timer_args = {
         .callback = &timer_send_deauth_frame,
         .arg = (void *) ap_record
     };
-    ESP_ERROR_CHECK(esp_timer_create(&deauth_timer_args, &deauth_timer_handle));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(deauth_timer_handle, period_sec * 1000000));
+    esp_err_t err = esp_timer_create(&deauth_timer_args, &deauth_timer_handle);
+    if (err != ESP_OK) return err;
+    err = esp_timer_start_periodic(deauth_timer_handle, (uint64_t)period_sec * 1000000);
+    if (err != ESP_OK) attack_method_broadcast_stop();
+    return err;
 }
 
 void attack_method_broadcast_stop(){
-    ESP_ERROR_CHECK(esp_timer_stop(deauth_timer_handle));
+    if (!deauth_timer_handle) return;
+    esp_timer_stop(deauth_timer_handle);
     esp_timer_delete(deauth_timer_handle);
+    deauth_timer_handle = NULL;
 }
 
 /**
@@ -54,18 +59,21 @@ void attack_method_broadcast_stop(){
  * 
  * @param ap_record target AP that will be cloned/duplicated
  */
-void attack_method_rogueap(const wifi_ap_record_t *ap_record){
+esp_err_t attack_method_rogueap(const wifi_ap_record_t *ap_record){
     ESP_LOGD(TAG, "Configuring Rogue AP");
-    wifictl_set_ap_mac(ap_record->bssid);
+    esp_err_t err = wifictl_set_ap_mac(ap_record->bssid);
+    if (err != ESP_OK) return err;
     wifi_config_t ap_config = {
         .ap = {
-            .ssid_len = strlen((char *)ap_record->ssid),
+            .ssid_len = strnlen((const char *)ap_record->ssid, 32),
             .channel = ap_record->primary,
             .authmode = ap_record->authmode,
             .password = "dummypassword",
             .max_connection = 1
         },
     };
-    mempcpy(ap_config.sta.ssid, ap_record->ssid, 32);
-    wifictl_ap_start(&ap_config);
+    memcpy(ap_config.ap.ssid, ap_record->ssid, 32);
+    err = wifictl_ap_start(&ap_config);
+    if (err != ESP_OK) wifictl_restore_ap_mac();
+    return err;
 }

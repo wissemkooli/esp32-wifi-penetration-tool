@@ -10,6 +10,9 @@
 #define AP_SCANNER_H
 
 #include "esp_wifi_types.h"
+#include "esp_err.h"
+#include "sdkconfig.h"
+#include "security_report.h"
 
 /**
  * @brief Linked list of wifi_ap_record_t records.
@@ -24,7 +27,10 @@ typedef struct {
  * @brief Switches ESP into scanning mode and stores result.
  * 
  */
-void wifictl_scan_nearby_aps();
+esp_err_t wifictl_scan_nearby_aps(void);
+pmf_status_t wifictl_get_ap_pmf(unsigned index);
+unsigned wifictl_get_ap_ssid(unsigned index, uint8_t out[32]);
+const char *wifictl_auth_name(wifi_auth_mode_t auth);
 
 /**
  * @brief Returns current list of scanned APs.

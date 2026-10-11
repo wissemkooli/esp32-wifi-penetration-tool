@@ -14,6 +14,8 @@
 #define ATTACK_H
 
 #include "esp_wifi_types.h"
+#include "esp_err.h"
+#include <stdbool.h>
 
 /**
  * @brief Implemented attack types that can be chosen.
@@ -62,12 +64,40 @@ typedef struct {
     char *content;
 } attack_status_t;
 
+enum { ATTACK_TYPE_CONTROLLER = 4, MAX_JOB_TARGETS = 8 };
+typedef struct {
+    char boot_id[17];
+    uint32_t id, scan_generation, sent, tx_errors;
+    uint8_t type, method, timeout, count, current_target, ssid_len;
+    uint8_t ssid[32];
+    wifi_ap_record_t targets[MAX_JOB_TARGETS];
+    int pmf;
+    int64_t started_us, ended_us;
+    bool scanning, stopping;
+    char reason[48];
+} attack_job_t;
+/* Read only while holding attack_lock. Copies contain no borrowed pointers. */
+const attack_job_t *attack_get_job(void);
+esp_err_t attack_submit_job(const uint8_t *indices, unsigned count, uint8_t type,
+                           uint8_t method, uint8_t timeout, uint32_t scan_generation);
+esp_err_t attack_scan_submit(void);
+esp_err_t attack_legacy_scan(void);
+esp_err_t attack_stop_request(const char *boot_id, uint32_t id);
+void attack_note_tx(bool success, unsigned target);
+void attack_set_error(const char *reason);
+
 /**
  * @brief Returns pointer to attack_status_t structure.
  * 
  * @return const attack_status_t*  pointer to the status strucutre
  */
-const attack_status_t *attack_get_status();
+/* Hold attack_lock while reading status or capture buffers from another task. */
+const attack_status_t *attack_get_status(void);
+void attack_lock(void);
+void attack_unlock(void);
+bool attack_is_running(void);
+esp_err_t attack_submit(uint8_t ap_index, uint8_t type, uint8_t method, uint8_t timeout);
+esp_err_t attack_reset_request(void);
 
 /**
  * @brief Function to update current status of attack.
