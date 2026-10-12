@@ -3,6 +3,26 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
+  evidence-collector:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse and smoke-test Windows evidence collector without a Wi-Fi adapter
+        shell: powershell
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            "$pwd/tools/Collect-WifiEvidence.ps1", [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'wifi-evidence'
+          ./tools/Collect-WifiEvidence.ps1 -Scenario ci-smoke -Seconds 30 -OutputRoot $evidenceRoot
+          $folder = Get-ChildItem $evidenceRoot -Directory | Select-Object -First 1
+          $manifest = Get-Content (Join-Path $folder.FullName 'manifest.json') -Raw | ConvertFrom-Json
+          if ($manifest.scenario -ne 'ci-smoke') { throw 'Missing scenario metadata' }
+          $samples = @(Get-Content (Join-Path $folder.FullName 'samples.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($samples.Count -lt 1 -or -not $samples[0].utc) { throw 'Missing timestamped samples' }
+          if (-not (Test-Path (Join-Path $folder.FullName 'ended-utc.txt'))) { throw 'Missing completion timestamp' }
   regression:
     runs-on: ubuntu-latest
     steps:

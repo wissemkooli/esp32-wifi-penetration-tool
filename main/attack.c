@@ -25,7 +25,7 @@ static int64_t deadline_us;
 static wifi_ap_record_t active_ap;
 static attack_job_t job;
 ESP_EVENT_DEFINE_BASE(ATTACK_EVENTS);
-enum { START_REQUEST, RESET_REQUEST, TIMEOUT_REQUEST, STOP_REQUEST, SCAN_REQUEST };
+enum { START_REQUEST, RESET_REQUEST, TIMEOUT_REQUEST, STOP_REQUEST, SCAN_REQUEST, CONTROLLER_FAILURE };
 typedef struct {
     uint8_t type, method, timeout;
     wifi_ap_record_t ap;
@@ -38,11 +38,50 @@ const attack_job_t *attack_get_job(void) { return &job; }
 void attack_set_error(const char *reason) {
     attack_lock(); snprintf(job.reason, sizeof(job.reason), "%s", reason); attack_unlock();
 }
+void attack_note_setup_failure(esp_err_t error, const char *stage) {
+    if (error == ESP_OK || !stage) return;
+    attack_lock();
+    if (attack_status.state == RUNNING && !job.radio_error) {
+        job.radio_error = error;
+        snprintf(job.radio_stage, sizeof(job.radio_stage), "%s", stage);
+        snprintf(job.reason, sizeof(job.reason), "setup_failed");
+    }
+    attack_unlock();
+}
 void attack_note_tx(bool success, unsigned target) {
     attack_lock();
     if (success) ++job.sent; else ++job.tx_errors;
     job.current_target = target;
     attack_unlock();
+}
+
+void attack_controller_diagnostics(uint32_t id, uint32_t ok, uint32_t failed,
+                                   bool registered, esp_err_t callback_error) {
+    attack_lock();
+    if (job.id == id && job.type == ATTACK_TYPE_CONTROLLER) {
+        job.tx_done_ok = ok; job.tx_done_fail = failed;
+        job.tx_callback_registered = registered; job.tx_callback_error = callback_error;
+    }
+    attack_unlock();
+}
+
+esp_err_t attack_controller_failure_request(uint32_t id, esp_err_t error,
+                                           const char *stage, unsigned target) {
+    if (error == ESP_OK || !stage || target >= MAX_JOB_TARGETS) return ESP_ERR_INVALID_ARG;
+    attack_lock();
+    if (job.id != id || attack_status.state != RUNNING || job.type != ATTACK_TYPE_CONTROLLER) {
+        attack_unlock(); return ESP_ERR_INVALID_STATE;
+    }
+    /* Preserve the first cause. Queue retries must not count the same failure twice. */
+    if (!job.radio_error) {
+        job.radio_error = error; job.current_target = target;
+        snprintf(job.radio_stage, sizeof(job.radio_stage), "%s", stage);
+        if (!strncmp(stage, "channel", 7)) ++job.channel_errors;
+        else if (!strcmp(stage, "transmit")) ++job.tx_errors;
+        snprintf(job.reason, sizeof(job.reason), "radio_failure");
+    }
+    esp_err_t err = esp_event_post(ATTACK_EVENTS, CONTROLLER_FAILURE, &id, sizeof(id), 0);
+    attack_unlock(); return err;
 }
 
 bool attack_is_running(void) {
@@ -118,7 +157,7 @@ static void stop_producers(void) {
 static void attack_timeout_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
     if (!attack_is_running() || job.scanning || esp_timer_get_time() < deadline_us) return;
     stop_producers();
-    attack_set_error("deadline");
+    if (!job.radio_error) attack_set_error("deadline");
     /* Results become readable only after all producers have stopped. */
     attack_update_status(TIMEOUT);
 }
@@ -192,7 +231,11 @@ static void attack_request_handler(void *arg, esp_event_base_t base, int32_t id,
         case ATTACK_TYPE_DOS: attack_dos_start(&config); break;
         case ATTACK_TYPE_CONTROLLER:
             err = controller_start(job.targets, job.count);
-            if (err != ESP_OK) { attack_set_error(esp_err_to_name(err)); attack_update_status(TIMEOUT); }
+            if (err != ESP_OK) {
+                controller_stop();
+                if (!job.radio_error) attack_set_error(esp_err_to_name(err));
+                attack_update_status(TIMEOUT);
+            }
             break;
         default: attack_update_status(TIMEOUT); break;
     }
@@ -211,7 +254,10 @@ esp_err_t attack_scan_submit(void) {
     esp_err_t err = esp_event_post(ATTACK_EVENTS, SCAN_REQUEST, NULL, 0, 0);
     if (err == ESP_OK) {
         ++job.id; job.type = 0; job.count = 0; job.scanning = true; job.reason[0] = 0;
-        job.started_us = job.ended_us = 0; job.sent = job.tx_errors = 0;
+        job.started_us = job.ended_us = 0; job.sent = job.tx_errors = job.channel_errors = 0;
+        job.radio_error = ESP_OK; job.radio_stage[0] = 0;
+        job.tx_done_ok = job.tx_done_fail = 0;
+        job.tx_callback_registered = false; job.tx_callback_error = ESP_OK;
         attack_status.state = RUNNING; attack_status.type = 0;
     }
     attack_unlock(); return err;
@@ -225,7 +271,14 @@ esp_err_t attack_legacy_scan(void) {
 static void stop_handler(void *arg, esp_event_base_t base, int32_t event_id, void *data) {
     uint32_t id = *(uint32_t *)data;
     if (!attack_is_running() || job.id != id || job.scanning) return;
-    stop_producers(); attack_set_error("cancelled"); attack_update_status(TIMEOUT);
+    stop_producers();
+    if (!job.radio_error) attack_set_error("cancelled");
+    attack_update_status(TIMEOUT);
+}
+static void controller_failure_handler(void *arg, esp_event_base_t base, int32_t event_id, void *data) {
+    uint32_t id = *(uint32_t *)data;
+    if (!attack_is_running() || job.id != id || job.type != ATTACK_TYPE_CONTROLLER) return;
+    stop_producers(); attack_update_status(TIMEOUT);
 }
 esp_err_t attack_stop_request(const char *boot, uint32_t id) {
     attack_lock();
@@ -266,4 +319,5 @@ void attack_init(void) {
     ESP_ERROR_CHECK(esp_event_handler_register(ATTACK_EVENTS, TIMEOUT_REQUEST, attack_timeout_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(ATTACK_EVENTS, STOP_REQUEST, stop_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(ATTACK_EVENTS, SCAN_REQUEST, scan_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(ATTACK_EVENTS, CONTROLLER_FAILURE, controller_failure_handler, NULL));
 }

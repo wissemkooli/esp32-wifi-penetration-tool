@@ -60,6 +60,7 @@ void attack_handshake_start(attack_config_t *attack_config){
     attack_lock();
     if (!pcap_serializer_init()) {
         attack_unlock();
+        attack_note_setup_failure(ESP_ERR_NO_MEM, "pcap_init");
         attack_update_status(TIMEOUT);
         return;
     }
@@ -67,17 +68,22 @@ void attack_handshake_start(attack_config_t *attack_config){
     hccapx_serializer_init(job->ssid, job->ssid_len);
     attack_unlock();
     active = true;
-    ESP_ERROR_CHECK(esp_event_handler_register(FRAME_ANALYZER_EVENTS, DATA_FRAME_EVENT_EAPOLKEY_FRAME, &eapolkey_frame_handler, NULL));
+    const char *stage = "event_handler";
+    esp_err_t err = esp_event_handler_register(FRAME_ANALYZER_EVENTS, DATA_FRAME_EVENT_EAPOLKEY_FRAME, &eapolkey_frame_handler, NULL);
+    if (err != ESP_OK) goto failed;
     frame_analyzer_capture_start(SEARCH_HANDSHAKE, ap_record->bssid);
-    esp_err_t err = wifictl_sniffer_filter_frame_types(true, false, false);
-    if (err == ESP_OK) err = wifictl_sniffer_start(ap_record->primary);
+    stage = "sniffer_filter";
+    err = wifictl_sniffer_filter_frame_types(true, false, false);
+    if (err == ESP_OK) { stage = "sniffer_start"; err = wifictl_sniffer_start(ap_record->primary); }
     if (err != ESP_OK) goto failed;
     switch(attack_config->method){
         case ATTACK_HANDSHAKE_METHOD_BROADCAST:
+            stage = "broadcast_start";
             ESP_LOGD(TAG, "ATTACK_HANDSHAKE_METHOD_BROADCAST");
             err = attack_method_broadcast(ap_record, 5);
             break;
         case ATTACK_HANDSHAKE_METHOD_ROGUE_AP:
+            stage = "rogue_ap_start";
             ESP_LOGD(TAG, "ATTACK_HANDSHAKE_METHOD_ROGUE_AP");
             err = attack_method_rogueap(ap_record);
             break;
@@ -90,7 +96,8 @@ void attack_handshake_start(attack_config_t *attack_config){
     }
     if (err == ESP_OK) return;
 failed:
-    ESP_LOGE(TAG, "Capture start failed: %s", esp_err_to_name(err));
+    attack_note_setup_failure(err, stage);
+    ESP_LOGE(TAG, "Capture start failed at %s: %s", stage, esp_err_to_name(err));
     attack_handshake_stop();
     attack_update_status(TIMEOUT);
 }

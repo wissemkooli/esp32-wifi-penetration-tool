@@ -117,6 +117,109 @@ They use the same radio manager; legacy downloads have no identity protection.
 
 ## Optional USB serial
 
+### Controller channel handoff fix (1.0.2)
+
+The user's 1.0.1 log identifies `ESP_FAIL` at `stage=channel`, with no
+transmission submissions. The controller attempted `esp_wifi_set_channel()`
+in APSTA mode while a phone remained connected to ManagementAP, violating
+the documented SDK precondition. This is a confirmed code defect; the generic
+SDK error alone cannot prove every cause of a physical radio failure.
+
+Version 1.0.2 moves radio setup to the cooperative controller task, allowing
+the browser's submission response to be sent before a short 150 ms handoff.
+The task stops Wi-Fi, selects STA mode, restarts Wi-Fi, then enables monitor
+mode. ManagementAP is absent for the entire timed controller operation so the
+phone cannot reconnect and lock the channel between target passes. Requested
+channels are read back before any transmission attempt. Cancellation before
+handoff leaves ManagementAP running. Stop, deadline and failures join the
+producer and restore APSTA; the shared manager reapplies ManagementAP's
+configuration. Failed task creation never takes down ManagementAP.
+
+Keep the page open. After the timed operation, reconnect to ManagementAP and
+save the device log. Browser Stop is unavailable during loss of contact;
+USB serial `stop` or board reset can end a test early. The independent device
+deadline remains active. Use a short duration for the first hardware check.
+Setup and restoration failures retain their own stages and console logs.
+Tests emulate a phone holding the APSTA channel, mode transitions, failed
+starts, cancellation and restoration. Physical DevKit validation is pending,
+and successful channel setup does not establish transmission compatibility.
+
+SDK channel preconditions: https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32/api-reference/network/esp_wifi.html#_CPPv420esp_wifi_set_channel7uint8_t17wifi_second_chan_t
+
+### Controller diagnostics (1.0.1)
+
+Version **1.0.4-diagnostics** extends setup error retention to PMKID and legacy
+methods, including PMKID handler registration without a fatal SDK assertion.
+It preserves the first failure through cleanup; the next job starts clean.
+See [the phone/Windows evidence guide](DEVICE_TEST_GUIDE.md) for each mode,
+hotspot role limitations, client observations and an AI-readable evidence bundle.
+This does not change frame transmission or fix legacy radio ownership.
+
+The API and USB startup log now derive firmware and SDK versions from the
+running image's application descriptor. The previous hardcoded 1.0.2 label
+also appeared on 1.0.3 diagnostic builds and did not identify the flashed
+binary correctly. Handshake setup failures now preserve the returned error
+code and setup stage (event handler, sniffer filter/start, or method start)
+instead of exposing only `setup_failed` with a zero error code. These are
+diagnostic fixes; a reported driver completion is not evidence of a client
+disconnect. Internet ping alone cannot establish whether a Wi-Fi association
+briefly dropped and recovered. Windows' wireless report can show recorded
+connection/disconnection events for the corresponding test interval:
+`netsh wlan show wlanreport` from an administrator command prompt.
+
+Version **1.0.3** corrects the misleading transmission label: `sent` remains
+as a compatibility alias, while `tx_accepted` explicitly counts successful SDK
+submissions. The controller collects the public SDK TX completion callback in
+its Wi-Fi task using bounded atomic counters. On stop, the manager stores
+`tx_done_ok`, `tx_done_fail`, `tx_callback_registered` and
+`tx_callback_error_code/name` in the matching job after detaching the callback.
+These completion totals are final snapshots, not live counters. Callback
+registration failure does not change the existing radio operation; it marks
+diagnostics unavailable. Zero completion callbacks mean **unknown**, even when
+registration succeeded. Neither SDK acceptance nor a successful driver callback
+confirms reception by a particular client or a disconnection. Broadcast frames
+do not receive client acknowledgments.
+
+Saved text logs now include the BSSID, exact SSID bytes, advertised security and
+PMF, alongside both counter types. No new radio method or frame changes are
+included. The user's 1.0.2 runs accepted approximately 24,150 submissions in
+30 seconds without API/channel errors, but their PC stayed connected; that
+observation does not establish where reception failed. PMF was not advertised
+in the scan, so the logs provide no positive evidence of PMF rejection.
+Deauthentication is outside the frame types officially supported by
+`esp_wifi_80211_tx` in IDF 5.5.5. The historical private sanity-check override
+remains unverified with this SDK. Independent over-air capture is needed to
+confirm frame contents and reception if completion diagnostics are inconclusive.
+
+SDK API and callback: https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32/api-reference/network/esp_wifi.html#_CPPv417esp_wifi_80211_tx16wifi_interface_tPKvib
+
+The 1.0 preview has been observed on a user's board reporting zero accepted
+transmissions and repeated failures. The underlying SDK code was discarded,
+so that observation alone does not identify driver rejection versus a channel
+switch failure. Transmission compatibility remains unverified.
+
+Version 1.0.1 stops the controller on the first SDK failure. The dashboard and
+`/api/v1/job` preserve `radio_error_code`, `radio_error_name`,
+`radio_error_stage` (channel, transmit, promiscuous or task), and
+`current_target`. Channel failures increment `channel_errors`; only failed
+transmission submissions increment `tx_errors`. A queue retry does not count
+the same error again. The manager restores ManagementAP on failure, and the
+failure remains available after reconnection until another operation starts.
+
+USB serial logs include firmware/SDK version, session/job identity, selected
+BSSID/channel, and the first failing call's error name and hexadecimal code.
+Connect Serial USB Terminal at 115200 baud, 8N1, no flow control. Close the
+flashing app first. Send `status` after failure to retrieve the retained error.
+Send the dashboard error screenshot and controller log lines for diagnosis.
+Alternatively tap **Save device log** in Capture / Controller to download a
+`.txt` file on the phone, then attach it to the conversation. It contains the
+last 200 changes observed by this open page and the exact retained SDK failure.
+It remains available during loss of device contact. It does not contain full
+boot/SDK console output or offline audit results, passwords or wordlists. Save
+it before reloading the page. USB serial is needed for full console logs.
+No password or wordlist is written into these diagnostics. This update does
+not change frame construction or the driver's transmission restrictions.
+
 USB serial at 115200 baud shares the browser's manager:
 `scan`, `list`, `all`, `0,2,5`, `start`, `stop`, `status`, `limit 30`, `cancel`,
 and `help`. Wait for the asynchronous scan to finish, then use `list`.

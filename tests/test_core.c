@@ -25,7 +25,9 @@ static struct { esp_event_base_t base; int32_t id; esp_event_handler_t fn; void 
 static struct { esp_event_base_t base; int32_t id; void *data; } queue[64];
 static unsigned queued;
 static bool fail_posts;
+static bool fail_event_registration;
 esp_err_t esp_event_handler_register(esp_event_base_t base, int32_t id, esp_event_handler_t fn, void *arg) {
+    if (fail_event_registration) return ESP_ERR_NO_MEM;
     for (unsigned i = 0; i < 16; ++i) {
         if (!handlers[i].fn || (handlers[i].base == base && handlers[i].id == id && handlers[i].fn == fn)) {
             handlers[i].base = base; handlers[i].id = id; handlers[i].fn = fn; handlers[i].arg = arg;
@@ -82,6 +84,7 @@ static uint32_t generation;
 static bool sniffing, controlling;
 static unsigned restored;
 static bool fail_sniffer, fail_connection, fail_method;
+static bool fail_filter;
 const wifi_ap_record_t *wifictl_get_ap_record(unsigned i) { return i < aps.count ? &aps.records[i] : NULL; }
 const wifictl_ap_records_t *wifictl_get_ap_records(void) { return &aps; }
 esp_err_t wifictl_scan_nearby_aps(void) { return ESP_OK; }
@@ -94,7 +97,7 @@ esp_err_t wifictl_sniffer_start(uint8_t c) {
     ++generation; sniffing = true; return ESP_OK;
 }
 void wifictl_sniffer_stop(void) { sniffing = false; }
-esp_err_t wifictl_sniffer_filter_frame_types(bool d, bool m, bool c) { (void)d; (void)m; (void)c; return ESP_OK; }
+esp_err_t wifictl_sniffer_filter_frame_types(bool d, bool m, bool c) { (void)d; (void)m; (void)c; return fail_filter ? ESP_FAIL : ESP_OK; }
 void wifictl_mgmt_ap_start(void) { ++restored; }
 void wifictl_restore_ap_mac(void) {}
 void wifictl_get_sta_mac(uint8_t *out) { memset(out, 3, 6); }
@@ -315,13 +318,22 @@ static void test_pcap_limit(void) {
     puts("PASS: bounded PCAP memory and cleanup");
 }
 static void test_start_failures(void) {
+    httpd_req_t request={0}; device_get(&request);
+    assert(strstr((char *)request.response,"test-build-version") && strstr((char *)request.response,"test-sdk-version")); clear_response(&request);
     fail_sniffer = true;
     assert(attack_submit(0, 1, 2, 5) == ESP_OK); dispatch();
     assert(!sniffing && !timer.armed && attack_get_status()->state == TIMEOUT);
+    assert(attack_get_job()->radio_error==ESP_FAIL && !strcmp(attack_get_job()->radio_stage,"sniffer_start"));
+    request=(httpd_req_t){0}; job_get(&request);
+    assert(strstr((char *)request.response,"\"radio_error_code\":-1") && strstr((char *)request.response,"sniffer_start")); clear_response(&request);
     assert(attack_reset_request() == ESP_OK); dispatch();
     fail_sniffer = false; fail_connection = true;
     assert(attack_submit(0, 2, 0, 5) == ESP_OK); dispatch();
     assert(!sniffing && !timer.armed && attack_get_status()->state == TIMEOUT);
+    assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "sta_connect"));
+    /* Cleanup/secondary errors must not replace the original setup failure. */
+    attack_note_setup_failure(ESP_ERR_NO_MEM, "secondary");
+    assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "sta_connect"));
     assert(attack_reset_request() == ESP_OK); dispatch();
     fail_connection = false; fail_method = true;
     assert(attack_submit(0, 1, 0, 5) == ESP_OK); dispatch();
@@ -329,8 +341,32 @@ static void test_start_failures(void) {
     assert(attack_reset_request() == ESP_OK); dispatch();
     assert(attack_submit(0, 3, 2, 5) == ESP_OK); dispatch();
     assert(!timer.armed && attack_get_status()->state == TIMEOUT);
+    assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "rogue_ap_start"));
+    assert(attack_reset_request() == ESP_OK); dispatch();
+    assert(attack_submit(0, 3, 1, 5) == ESP_OK); dispatch();
+    assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "broadcast_start"));
+    request=(httpd_req_t){0}; job_get(&request);
+    assert(strstr((char *)request.response, "\"state\":\"error\"") && strstr((char *)request.response, "broadcast_start")); clear_response(&request);
     assert(attack_reset_request() == ESP_OK); dispatch();
     fail_method = false;
+    for (unsigned type = 1; type <= 2; ++type) {
+        fail_event_registration = true;
+        assert(attack_submit(0, type, type == 1 ? 2 : 0, 5) == ESP_OK); dispatch();
+        assert(attack_get_status()->state == TIMEOUT && !timer.armed && !sniffing);
+        assert(attack_get_job()->radio_error == ESP_ERR_NO_MEM && !strcmp(attack_get_job()->radio_stage, "event_handler"));
+        fail_event_registration = false;
+        assert(attack_reset_request() == ESP_OK); dispatch();
+        fail_filter = true;
+        assert(attack_submit(0, type, type == 1 ? 2 : 0, 5) == ESP_OK); dispatch();
+        assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "sniffer_filter"));
+        assert(!timer.armed && !sniffing);
+        fail_filter = false;
+        assert(attack_reset_request() == ESP_OK); dispatch();
+    }
+    assert(attack_submit(0, 1, 2, 5) == ESP_OK); dispatch();
+    assert(sniffing && attack_get_job()->radio_error == ESP_OK && !attack_get_job()->radio_stage[0]);
+    expire(); dispatch();
+    assert(attack_reset_request() == ESP_OK); dispatch();
     puts("PASS: radio, connection and method start failures clean up without restarting");
 }
 static void test_pmkid_flow(void) {
@@ -384,12 +420,42 @@ static void test_unified_jobs(void) {
     dispatch(); assert(controlling);
     attack_note_tx(true,0); attack_note_tx(false,0);
     assert(attack_get_job()->sent==1 && attack_get_job()->tx_errors==1);
+    attack_controller_diagnostics(id,1,2,true,ESP_OK);
+    attack_controller_diagnostics(id-1,100,100,false,ESP_FAIL);
+    assert(attack_get_job()->tx_done_ok==1 && attack_get_job()->tx_done_fail==2 && attack_get_job()->tx_callback_registered);
+    req=(httpd_req_t){0}; job_get(&req);
+    assert(strstr((char *)req.response,"\"tx_accepted\":1") && strstr((char *)req.response,"\"tx_done_fail\":2")); clear_response(&req);
     assert(attack_stop_request("stale",id)==ESP_ERR_NOT_FOUND);
     assert(attack_stop_request(boot,id-1)==ESP_ERR_NOT_FOUND);
     serial_console_execute("cancel",response,sizeof(response)); assert(strstr(response,"selected=0"));
     dispatch(); assert(!controlling && !timer.armed && !strcmp(attack_get_job()->reason,"cancelled"));
     assert(attack_submit_job(&index,1,4,0,5,scan)==ESP_OK); dispatch();
     expire(); dispatch(); assert(!controlling && !strcmp(attack_get_job()->reason,"deadline"));
+    /* Driver errors are retained across a full queue, counted once, surfaced in
+     * HTTP/serial, and stop through the same restoration path as other jobs. */
+    assert(attack_submit_job(&index,1,4,0,5,scan)==ESP_OK); dispatch();
+    id=attack_get_job()->id; old_restored=restored; fail_posts=true;
+    assert(attack_controller_failure_request(id,ESP_ERR_INVALID_ARG,"transmit",0)==ESP_ERR_TIMEOUT);
+    assert(attack_get_job()->tx_errors==1 && attack_get_job()->radio_error==ESP_ERR_INVALID_ARG);
+    fail_posts=false;
+    assert(attack_controller_failure_request(id,ESP_ERR_INVALID_ARG,"transmit",0)==ESP_OK);
+    dispatch(); assert(!controlling && !timer.armed && restored>old_restored);
+    assert(attack_get_job()->tx_errors==1 && !strcmp(attack_get_job()->reason,"radio_failure"));
+    req=(httpd_req_t){0}; job_get(&req);
+    assert(strstr((char *)req.response,"\"state\":\"error\"") && strstr((char *)req.response,"\"radio_error_code\":258"));
+    assert(strstr((char *)req.response,"\"radio_error_stage\":\"transmit\"")); clear_response(&req);
+    serial_console_execute("status",response,sizeof(response));
+    assert(strstr(response,"stage=transmit") && strstr(response,"0x102"));
+    assert(attack_submit_job(&index,1,4,0,5,scan)==ESP_OK); dispatch();
+    assert(!attack_get_job()->radio_error && !attack_get_job()->tx_errors);
+    assert(attack_controller_failure_request(id,ESP_FAIL,"channel",0)==ESP_ERR_INVALID_STATE);
+    assert(controlling && !attack_get_job()->radio_error);
+    id=attack_get_job()->id; fail_posts=true;
+    assert(attack_controller_failure_request(id,ESP_FAIL,"channel",0)==ESP_ERR_TIMEOUT);
+    assert(attack_get_job()->channel_errors==1 && !attack_get_job()->tx_errors);
+    fail_posts=false; expire(); dispatch();
+    assert(!controlling && !strcmp(attack_get_job()->reason,"radio_failure"));
+    assert(!strcmp(job_state(),"error"));
     old_restored=restored; fail_method=true;
     assert(attack_submit_job(&index,1,4,0,5,scan)==ESP_OK); dispatch(); fail_method=false;
     assert(!controlling && !timer.armed && restored>old_restored);
