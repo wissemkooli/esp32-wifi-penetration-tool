@@ -91,3 +91,6 @@ try {
     Write-Host "Finished: $folder"
     Write-Host 'Add the ESP32 device log, screenshots, captures, and action times to this folder.'
 }
+# Individual native-command errors are recorded in the bundle. Only a collector
+# exception should fail the script; do not leak the last netsh/ping exit code.
+exit 0
