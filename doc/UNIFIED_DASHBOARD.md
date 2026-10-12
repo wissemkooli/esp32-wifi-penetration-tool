@@ -148,6 +148,13 @@ SDK channel preconditions: https://docs.espressif.com/projects/esp-idf/en/v5.5.5
 
 ### Controller diagnostics (1.0.1)
 
+Version **1.0.4-diagnostics** extends setup error retention to PMKID and legacy
+methods, including PMKID handler registration without a fatal SDK assertion.
+It preserves the first failure through cleanup; the next job starts clean.
+See [the phone/Windows evidence guide](DEVICE_TEST_GUIDE.md) for each mode,
+hotspot role limitations, client observations and an AI-readable evidence bundle.
+This does not change frame transmission or fix legacy radio ownership.
+
 The API and USB startup log now derive firmware and SDK versions from the
 running image's application descriptor. The previous hardcoded 1.0.2 label
 also appeared on 1.0.3 diagnostic builds and did not identify the flashed

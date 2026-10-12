@@ -14,6 +14,9 @@ radio methods remain unverified with the new SDK.
 
 Read [the unified workflow, APIs and hardware checklist](doc/UNIFIED_DASHBOARD.md)
 and [the original audit and reliability fixes](doc/MODERNIZATION.md).
+For testing with a phone controlling the ESP32 and a Windows PC hosting the
+target hotspot, use [the step-by-step evidence guide](doc/DEVICE_TEST_GUIDE.md)
+and [Windows evidence collector](tools/Collect-WifiEvidence.ps1).
 The upstream feature descriptions and demo below describe the original project.
 
 <p align="center">

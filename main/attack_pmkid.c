@@ -32,14 +32,19 @@ static void pmkid_exit_condition_handler(void *arg, esp_event_base_t base, int32
 void attack_pmkid_start(attack_config_t *config) {
     ap_record = config->ap_record;
     active = true;
-    ESP_ERROR_CHECK(esp_event_handler_register(FRAME_ANALYZER_EVENTS, DATA_FRAME_EVENT_PMKID,
-                                             pmkid_exit_condition_handler, NULL));
+    const char *stage = "event_handler";
+    esp_err_t err = esp_event_handler_register(FRAME_ANALYZER_EVENTS, DATA_FRAME_EVENT_PMKID,
+                                              pmkid_exit_condition_handler, NULL);
+    if (err != ESP_OK) goto failed;
     frame_analyzer_capture_start(SEARCH_PMKID, ap_record->bssid);
-    esp_err_t err = wifictl_sniffer_filter_frame_types(true, false, false);
-    if (err == ESP_OK) err = wifictl_sniffer_start(ap_record->primary);
-    if (err == ESP_OK) err = wifictl_sta_connect_to_ap(ap_record, "dummypassword");
+    stage = "sniffer_filter";
+    err = wifictl_sniffer_filter_frame_types(true, false, false);
+    if (err == ESP_OK) { stage = "sniffer_start"; err = wifictl_sniffer_start(ap_record->primary); }
+    if (err == ESP_OK) { stage = "sta_connect"; err = wifictl_sta_connect_to_ap(ap_record, "dummypassword"); }
+failed:
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Capture start failed: %s", esp_err_to_name(err));
+        attack_note_setup_failure(err, stage);
+        ESP_LOGE(TAG, "Capture start failed at %s: %s", stage, esp_err_to_name(err));
         attack_pmkid_stop();
         attack_update_status(TIMEOUT);
     }

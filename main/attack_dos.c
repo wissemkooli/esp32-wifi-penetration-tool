@@ -25,25 +25,30 @@ void attack_dos_start(attack_config_t *attack_config) {
     method = attack_config->method;
     active = true;
     esp_err_t err = ESP_OK;
+    const char *stage = "method";
     switch(method){
         case ATTACK_DOS_METHOD_BROADCAST:
+            stage = "broadcast_start";
             ESP_LOGD(TAG, "ATTACK_DOS_METHOD_BROADCAST");
             err = attack_method_broadcast(attack_config->ap_record, 1);
             break;
         case ATTACK_DOS_METHOD_ROGUE_AP:
+            stage = "rogue_ap_start";
             ESP_LOGD(TAG, "ATTACK_DOS_METHOD_ROGUE_AP");
             err = attack_method_rogueap(attack_config->ap_record);
             break;
         case ATTACK_DOS_METHOD_COMBINE_ALL:
+            stage = "rogue_ap_start";
             ESP_LOGD(TAG, "ATTACK_DOS_METHOD_ROGUE_AP");
             err = attack_method_rogueap(attack_config->ap_record);
-            if (err == ESP_OK) err = attack_method_broadcast(attack_config->ap_record, 1);
+            if (err == ESP_OK) { stage = "broadcast_start"; err = attack_method_broadcast(attack_config->ap_record, 1); }
             break;
         default:
             ESP_LOGE(TAG, "Method unknown! DoS attack not started.");
     }
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Start failed: %s", esp_err_to_name(err));
+        attack_note_setup_failure(err, stage);
+        ESP_LOGE(TAG, "Start failed at %s: %s", stage, esp_err_to_name(err));
         attack_dos_stop();
         attack_update_status(TIMEOUT);
     }

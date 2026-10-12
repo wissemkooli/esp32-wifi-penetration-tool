@@ -25,7 +25,9 @@ static struct { esp_event_base_t base; int32_t id; esp_event_handler_t fn; void 
 static struct { esp_event_base_t base; int32_t id; void *data; } queue[64];
 static unsigned queued;
 static bool fail_posts;
+static bool fail_event_registration;
 esp_err_t esp_event_handler_register(esp_event_base_t base, int32_t id, esp_event_handler_t fn, void *arg) {
+    if (fail_event_registration) return ESP_ERR_NO_MEM;
     for (unsigned i = 0; i < 16; ++i) {
         if (!handlers[i].fn || (handlers[i].base == base && handlers[i].id == id && handlers[i].fn == fn)) {
             handlers[i].base = base; handlers[i].id = id; handlers[i].fn = fn; handlers[i].arg = arg;
@@ -82,6 +84,7 @@ static uint32_t generation;
 static bool sniffing, controlling;
 static unsigned restored;
 static bool fail_sniffer, fail_connection, fail_method;
+static bool fail_filter;
 const wifi_ap_record_t *wifictl_get_ap_record(unsigned i) { return i < aps.count ? &aps.records[i] : NULL; }
 const wifictl_ap_records_t *wifictl_get_ap_records(void) { return &aps; }
 esp_err_t wifictl_scan_nearby_aps(void) { return ESP_OK; }
@@ -94,7 +97,7 @@ esp_err_t wifictl_sniffer_start(uint8_t c) {
     ++generation; sniffing = true; return ESP_OK;
 }
 void wifictl_sniffer_stop(void) { sniffing = false; }
-esp_err_t wifictl_sniffer_filter_frame_types(bool d, bool m, bool c) { (void)d; (void)m; (void)c; return ESP_OK; }
+esp_err_t wifictl_sniffer_filter_frame_types(bool d, bool m, bool c) { (void)d; (void)m; (void)c; return fail_filter ? ESP_FAIL : ESP_OK; }
 void wifictl_mgmt_ap_start(void) { ++restored; }
 void wifictl_restore_ap_mac(void) {}
 void wifictl_get_sta_mac(uint8_t *out) { memset(out, 3, 6); }
@@ -327,6 +330,10 @@ static void test_start_failures(void) {
     fail_sniffer = false; fail_connection = true;
     assert(attack_submit(0, 2, 0, 5) == ESP_OK); dispatch();
     assert(!sniffing && !timer.armed && attack_get_status()->state == TIMEOUT);
+    assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "sta_connect"));
+    /* Cleanup/secondary errors must not replace the original setup failure. */
+    attack_note_setup_failure(ESP_ERR_NO_MEM, "secondary");
+    assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "sta_connect"));
     assert(attack_reset_request() == ESP_OK); dispatch();
     fail_connection = false; fail_method = true;
     assert(attack_submit(0, 1, 0, 5) == ESP_OK); dispatch();
@@ -334,8 +341,32 @@ static void test_start_failures(void) {
     assert(attack_reset_request() == ESP_OK); dispatch();
     assert(attack_submit(0, 3, 2, 5) == ESP_OK); dispatch();
     assert(!timer.armed && attack_get_status()->state == TIMEOUT);
+    assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "rogue_ap_start"));
+    assert(attack_reset_request() == ESP_OK); dispatch();
+    assert(attack_submit(0, 3, 1, 5) == ESP_OK); dispatch();
+    assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "broadcast_start"));
+    request=(httpd_req_t){0}; job_get(&request);
+    assert(strstr((char *)request.response, "\"state\":\"error\"") && strstr((char *)request.response, "broadcast_start")); clear_response(&request);
     assert(attack_reset_request() == ESP_OK); dispatch();
     fail_method = false;
+    for (unsigned type = 1; type <= 2; ++type) {
+        fail_event_registration = true;
+        assert(attack_submit(0, type, type == 1 ? 2 : 0, 5) == ESP_OK); dispatch();
+        assert(attack_get_status()->state == TIMEOUT && !timer.armed && !sniffing);
+        assert(attack_get_job()->radio_error == ESP_ERR_NO_MEM && !strcmp(attack_get_job()->radio_stage, "event_handler"));
+        fail_event_registration = false;
+        assert(attack_reset_request() == ESP_OK); dispatch();
+        fail_filter = true;
+        assert(attack_submit(0, type, type == 1 ? 2 : 0, 5) == ESP_OK); dispatch();
+        assert(attack_get_job()->radio_error == ESP_FAIL && !strcmp(attack_get_job()->radio_stage, "sniffer_filter"));
+        assert(!timer.armed && !sniffing);
+        fail_filter = false;
+        assert(attack_reset_request() == ESP_OK); dispatch();
+    }
+    assert(attack_submit(0, 1, 2, 5) == ESP_OK); dispatch();
+    assert(sniffing && attack_get_job()->radio_error == ESP_OK && !attack_get_job()->radio_stage[0]);
+    expire(); dispatch();
+    assert(attack_reset_request() == ESP_OK); dispatch();
     puts("PASS: radio, connection and method start failures clean up without restarting");
 }
 static void test_pmkid_flow(void) {
